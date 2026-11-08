@@ -39,6 +39,9 @@ Some board drivers use values taken from these projects. The source comments say
 | Waveshare AMOLED 1.8 board: pins, panel init | [Waveshare](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.8) | Apache-2.0 | [LICENSE](LICENSE) |
 | Waveshare LCD 1.28 board: panel init | Waveshare's `LCD_1in28` driver | not stated | |
 | CrowPanel 5.79" board: pins, RAM setup, update codes | [Elecrow's factory firmware](https://github.com/Elecrow-RD/CrowPanel-ESP32-5.79-E-paper-HMI-Display-with-272-792) | not stated | |
+| LCDWIKI 2.8" board: Teensy Audio Shield (SGTL5000) setup sequence | [Teensy Audio Library](https://github.com/PaulStoffregen/Audio) `control_sgtl5000.cpp` (Paul Stoffregen, PJRC) | MIT | [licenses/MIT-PJRC-Teensy-Audio.txt](licenses/MIT-PJRC-Teensy-Audio.txt) |
+| LCDWIKI 2.8" board: ES8311 register values | Espressif's `esp_codec_dev` es8311 driver | Apache-2.0 | [LICENSE](LICENSE) |
+| LCDWIKI 2.8" board: pins, ILI9341V init | [LCDWIKI](http://www.lcdwiki.com/2.8inch_ESP32-S3_Display) | not stated | |
 
 ## Used by the build, not in this repository
 

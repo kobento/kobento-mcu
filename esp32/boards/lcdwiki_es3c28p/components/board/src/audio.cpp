@@ -7,6 +7,7 @@
 // SYS_FS = 48 kHz. Headphones out; input from the mic (MIC/GND pads) or line in.
 #include "board/board.h"
 #include "audio.h"
+#include "board/mic.h"
 
 #include <algorithm>
 #include <cmath>
@@ -131,6 +132,28 @@ void audioInput(bool mic) {
         sAnaCtrl |= (1 << 2);
     }
     reg(CHIP_ANA_CTRL, sAnaCtrl);
+}
+
+// ── board/mic.h ──
+
+bool micReady() { return sCodec != nullptr; }
+
+int micRead(int16_t* out, int frames, int timeoutMs) {
+    if (!sCodec) return 0;
+    static int16_t buf[2 * 240];
+    int n = 0;
+    while (n < frames) {
+        const int want = std::min(240, frames - n);
+        size_t got = 0;
+        if (i2s_channel_read(sRx, buf, (size_t) want * 4, &got, timeoutMs) != ESP_OK && got == 0) break;
+        for (size_t i = 0; i + 1 < got / 2; i += 2) out[n++] = buf[i];
+    }
+    return n;
+}
+
+void micGain(int db) {
+    const int code = db >= 40 ? 3 : db >= 30 ? 2 : db >= 20 ? 1 : 0;
+    reg(CHIP_MIC_CTRL, (uint16_t) (0x0170 | code));
 }
 
 // ── Tones: a task plays the latest request; a newer one replaces it ──
@@ -359,7 +382,7 @@ bool audioConsole(const std::string& line) {
         int g = 40;
         sscanf(line.c_str() + 7, "%d", &g);
         const int code = g >= 40 ? 3 : g >= 30 ? 2 : g >= 20 ? 1 : 0;
-        reg(CHIP_MIC_CTRL, (uint16_t) (0x0170 | code));
+        micGain(g);
         printf("micgain %d dB\n", code == 0 ? 0 : 10 + 10 * code);
         return true;
     }
