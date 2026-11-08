@@ -63,7 +63,16 @@ board's switch pin (LN/LS) instead of the tip left MIC floating: 60 Hz hum at -2
 
 Checked here: the codec answers (ID 0xA011), the mic hears the board's speaker (below), the
 mic's noise floor is about -40 dBFS at +40 dB (mostly 60 Hz hum from the jumper wires).
-The shield's headphone output was not checked by ear.
+The shield's headphones were checked by ear on 2026-11-08 (a mic monitor app):
+
+- Both ears play only with `ws_width = 32`. The ESP-IDF Philips preset sets the LRCLK pulse
+  to the data width (16 of 64 BCLKs), and the codec then read the right slot late.
+- A steady tick, about 17 Hz, is electrical rather than digital. The test console's `loopz`
+  (codec I2S in looped to I2S out) returned both slots sample-exact. The tick stayed with
+  digital silence playing, grew with the headphone volume, and went away with the DAC muted
+  (CHIP_ADCDAC_CTRL 0x000C). It didn't change with the display, the CPU load, the link, the
+  speaker amp or I2S1. The likely path is supply noise on the 3.3 V jumper to the shield; not
+  yet confirmed with a capacitor at the shield (100 µF + 100 nF suggested).
 
 ## The unit here
 

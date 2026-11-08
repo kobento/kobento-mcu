@@ -221,7 +221,7 @@ static void knobTick() {
 
     static int shortSeen = board::knobShortPresses(), longSeen = board::knobLongPresses();
     const int longs = board::knobLongPresses(), shorts = board::knobShortPresses();
-    if (longs != longSeen) {   // long press: home (the menu), from it the next
+    if (longs != longSeen && kDocs > 1) {   // long press: home (the menu), from it the next
         longSeen = longs;
         const int menu = findDoc("knob_menu");
         if (menu >= 0 && menu != sCurrent) open(menu);

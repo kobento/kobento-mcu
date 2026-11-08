@@ -93,4 +93,8 @@ void speakerWrite(const int16_t* stereo, int frames) {
     i2s_channel_write(sTx, stereo, (size_t) frames * 4, &written, portMAX_DELAY);
 }
 
+void speakerClock(bool on) {   // a test: stop I2S1 (and with it the speaker codec's MCLK)
+    if (sTx) on ? i2s_channel_enable(sTx) : i2s_channel_disable(sTx);
+}
+
 }  // namespace board

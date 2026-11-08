@@ -19,6 +19,7 @@ bool audioConsole(const std::string& line);   // "audio", "tone", "volume", "mic
 void speakerInit();
 bool speakerReady();
 void speakerVolume(float v);   // 0..1
+void speakerClock(bool on);
 void speakerWrite(const int16_t* stereo, int frames);   // blocks until queued
 
 }  // namespace board

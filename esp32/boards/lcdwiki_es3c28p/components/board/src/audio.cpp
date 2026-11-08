@@ -10,12 +10,14 @@
 #include "board/mic.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cctype>
 #include <cstring>
 
 #include "driver/i2s_std.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "mbedtls/base64.h"
 #include "esp_log.h"
@@ -64,16 +66,25 @@ static bool regRead(uint16_t r, uint16_t* v) {
     return true;
 }
 
+// Counters for the monitor's health (micAudioCounts): DMA buffers the output played without
+// new data, input buffers lost because nobody read them, monitor writes that did not fit.
+static std::atomic<int> sTxStarved{0}, sRxLost{0}, sTxShort{0};
+static bool IRAM_ATTR onTxStarved(i2s_chan_handle_t, i2s_event_data_t*, void*) { sTxStarved++; return false; }
+static bool IRAM_ATTR onRxOverflow(i2s_chan_handle_t, i2s_event_data_t*, void*) { sRxLost++; return false; }
+
 static bool i2sInit() {
     i2s_chan_config_t cc = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     cc.auto_clear = true;   // silence (not the last buffer) when nothing is written
     cc.dma_frame_num = 240;
+    cc.dma_desc_num = 4;     // 4 x 5 ms: what the mic monitor adds as latency (micMonitorWrite)
     if (i2s_new_channel(&cc, &sTx, &sRx) != ESP_OK) return false;
     i2s_std_config_t sc = {};
     sc.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(kRate);
     sc.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
     sc.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
     sc.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;   // BCLK = 64 Fs, as the codec's SCLKFREQ 0
+    sc.slot_cfg.ws_width = 32;   // LRCLK at 50 % (the preset's is the data width, 16: the codec then
+                                 // read the right channel 16 clocks late, and that ear was silent)
     sc.gpio_cfg.mclk = kMclk;
     sc.gpio_cfg.bclk = kBclk;
     sc.gpio_cfg.ws = kLrclk;
@@ -81,6 +92,11 @@ static bool i2sInit() {
     sc.gpio_cfg.din = kDin;
     if (i2s_channel_init_std_mode(sTx, &sc) != ESP_OK) return false;
     if (i2s_channel_init_std_mode(sRx, &sc) != ESP_OK) return false;
+    i2s_event_callbacks_t tx = {}, rx = {};
+    tx.on_send_q_ovf = onTxStarved;
+    rx.on_recv_q_ovf = onRxOverflow;
+    i2s_channel_register_event_callback(sTx, &tx, nullptr);
+    i2s_channel_register_event_callback(sRx, &rx, nullptr);
     return i2s_channel_enable(sTx) == ESP_OK && i2s_channel_enable(sRx) == ESP_OK;
 }
 
@@ -138,6 +154,20 @@ void audioInput(bool mic) {
 
 bool micReady() { return sCodec != nullptr; }
 
+static std::atomic<bool> sWatchRight{false};
+static std::atomic<int> sRightNonzero{0}, sRightMax{0};
+static int sRightLog[64][3], sRightSample;
+void micRightLog() {
+    for (int i = 0; i < std::min(64, sRightNonzero.load()); i++)
+        printf("right %d: frame %d R 0x%04X L 0x%04X\n", i, sRightLog[i][0], sRightLog[i][1] & 0xFFFF, sRightLog[i][2] & 0xFFFF);
+}
+void micWatchRight(bool on, int* nonzero, int* maxAbs) {
+    if (on) { sRightNonzero = 0; sRightMax = 0; sRightSample = 0; }
+    sWatchRight = on;
+    *nonzero = sRightNonzero;
+    *maxAbs = sRightMax;
+}
+
 int micRead(int16_t* out, int frames, int timeoutMs) {
     if (!sCodec) return 0;
     static int16_t buf[2 * 240];
@@ -146,7 +176,18 @@ int micRead(int16_t* out, int frames, int timeoutMs) {
         const int want = std::min(240, frames - n);
         size_t got = 0;
         if (i2s_channel_read(sRx, buf, (size_t) want * 4, &got, timeoutMs) != ESP_OK && got == 0) break;
-        for (size_t i = 0; i + 1 < got / 2; i += 2) out[n++] = buf[i];
+        for (size_t i = 0; i + 1 < got / 2; i += 2) {
+            if (sWatchRight) {   // a test (micWatchRight): the right slot, which apps don't read
+                const int r = std::abs((int) buf[i + 1]);
+                if (r) {
+                    if (sRightNonzero < 64) { sRightLog[sRightNonzero][0] = sRightSample; sRightLog[sRightNonzero][1] = buf[i + 1]; sRightLog[sRightNonzero][2] = buf[i]; }
+                    sRightNonzero++;
+                }
+                sRightSample++;
+                if (r > sRightMax) sRightMax = r;
+            }
+            out[n++] = buf[i];
+        }
     }
     return n;
 }
@@ -154,6 +195,52 @@ int micRead(int16_t* out, int frames, int timeoutMs) {
 void micGain(int db) {
     const int code = db >= 40 ? 3 : db >= 30 ? 2 : db >= 20 ? 1 : 0;
     reg(CHIP_MIC_CTRL, (uint16_t) (0x0170 | code));
+}
+
+// ── The mic monitor: what the app captured, back out of the headphones ──
+
+static std::atomic<int> sMonitor{0};
+
+void micMonitor(int percent) {
+    if (!sCodec) return;
+    percent = std::clamp(percent, 0, 100);
+    if (percent == sMonitor.exchange(percent)) return;
+    if (percent == 0) {
+        reg(CHIP_ANA_CTRL, sAnaCtrl | 0x10);   // headphones muted: no hiss while off
+        return;
+    }
+    // 1..100 % -> -40 .. 0 dB (CHIP_ANA_HP_CTRL: 0x00 is +12 dB, 0.5 dB a step)
+    const float db = -40.0f + 40.0f * (float) percent / 100.0f;
+    const int n = std::clamp((int) std::lround(2 * (12 - db)), 0, 0x7F);
+    reg(CHIP_ANA_HP_CTRL, (uint16_t) (n << 8 | n));
+    reg(CHIP_ANA_CTRL, sAnaCtrl);
+}
+
+void micAudioCounts(int* txStarved, int* rxLost, int* txShort) {
+    *txStarved = sTxStarved.load();
+    *rxLost = sRxLost.load();
+    *txShort = sTxShort.load();
+}
+
+void micDigitalLoop(bool on) {   // the codec's I2S out carries its I2S in (not the ADC): a test
+    reg(CHIP_SSS_CTRL, on ? 0x0011 : 0x0010);
+}
+
+void micMonitorWrite(const int16_t* mono, int frames) {
+    if (!sCodec || sMonitor.load() == 0) return;
+    static int16_t buf[2 * 240];
+    while (frames > 0) {
+        const int n = std::min(frames, 240);
+        for (int i = 0; i < n; i++) buf[2 * i] = buf[2 * i + 1] = mono[i];
+        size_t written = 0;
+        // Waits for a free DMA buffer: input and output share the clock, so a buffer frees up as
+        // each block arrives, and the queue stays full (4 x 5 ms of latency). Not waiting dropped
+        // the blocks that came a moment early, and the codec played silence: a constant ticking.
+        i2s_channel_write(sTx, buf, (size_t) n * 4, &written, 10);
+        if (written < (size_t) n * 4) sTxShort++;
+        mono += n;
+        frames -= n;
+    }
 }
 
 // ── Tones: a task plays the latest request; a newer one replaces it ──
@@ -325,6 +412,20 @@ static void playRecording() {
 }
 
 bool audioConsole(const std::string& line) {
+    if (line == "spkclk off" || line == "spkclk on") {   // a test: the speaker's I2S1 clocks
+        speakerClock(line == "spkclk on");
+        printf("%s\n", line.c_str());
+        return true;
+    }
+    if (!line.compare(0, 4, "reg ")) {   // "reg ADDR [VALUE]" (hex): read or write a codec register
+        unsigned a = 0, v = 0;
+        const int n = sscanf(line.c_str() + 4, "%x %x", &a, &v);
+        if (n == 2) reg((uint16_t) a, (uint16_t) v);
+        uint16_t now = 0;
+        if (n >= 1 && regRead((uint16_t) a, &now)) printf("reg 0x%04X = 0x%04X\n", a, now);
+        else printf("reg: usage reg ADDR [VALUE] (hex)\n");
+        return true;
+    }
     if (!line.compare(0, 3, "rec")) {   // "rec [seconds]": record the mic, then measure it
         float sec = 5;
         sscanf(line.c_str() + 3, "%f", &sec);
