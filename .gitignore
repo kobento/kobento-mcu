@@ -20,3 +20,6 @@ esp32/host/scratch/
 .DS_Store
 backups/
 __pycache__/
+
+# tools/rec.py output (mic test recordings)
+/rec.wav
