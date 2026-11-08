@@ -138,6 +138,12 @@ void setRenderDiv(int div);    // 1 = native 720x1280, 2 = 360x640 upscaled by t
 void bench();                  // raw ThorVG throughput, printed
 void requestStats();           // log timing on the next frame
 std::vector<std::string> namedVariables();   // "name:type" of the current document
+// The current document's named variable `name` now, as namedValues gives it (a number, a
+// "#AARRGGBB" colour, a text). false when the document doesn't declare it.
+bool namedValueNow(const std::string& name, std::string& out);
+// A tap on the current document at (x, y) in its dp, as a finger would make it (down, up,
+// click), for a hardware button that stands for touching the screen. Negative: the centre.
+void click(float xDp = -1, float yDp = -1);
 const std::vector<uint8_t>& currentBytes();   // the current document, as loaded
 
 }  // namespace rcstage

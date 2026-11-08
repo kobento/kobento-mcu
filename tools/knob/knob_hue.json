@@ -1,0 +1,73 @@
+{
+  "header": {"apiLevel": 7, "width": 240, "height": 240, "profiles": 513,
+             "contentDescription": "Colour picker: turn the knob to choose a hue, press it to change the shade; the LED ring shows the colour"},
+  "resources": {
+    "variables": {
+      "Control.knob": {"value": 14, "export": true},
+      "Control.press": {"value": 0, "export": true},
+      "k": "(@Control.knob % 36 + 36) % 36",
+      "hue": "@k / 36",
+      "mode": "@Control.press % 3",
+      "m1": "1 - min(1, abs(@mode - 1))",
+      "m2": "1 - min(1, abs(@mode - 2))",
+      "sat": "1 - 0.45 * @m1 - 0.8 * @m2",
+      "deg": "@k * 10"
+    },
+    "colors": {
+      "pick": {"hsv": ["@hue", "@sat", 1]},
+      "Control.led": {"hsv": ["@hue", "@sat", 0.5], "export": true}
+    },
+    "paths": {
+      "pointer": [{"type": "moveTo", "x": -8, "y": -119}, {"type": "lineTo", "x": 8, "y": -119},
+                  {"type": "lineTo", "x": 0, "y": -107}, {"type": "close"}]
+    }
+  },
+  "root": {
+    "type": "canvas",
+    "modifiers": ["fillMaxSize", {"background": "#FF07090C"}],
+    "commands": [
+      {"variable": {"name": "s", "value": "min(componentWidth() / 240, componentHeight() / 240)"}},
+      {"translate": {"dx": "(componentWidth() - 240) / 2", "dy": "(componentHeight() - 240) / 2"}},
+      {"scale": {"sx": "@s", "sy": "@s", "pivotX": 120, "pivotY": 120}},
+
+      {"save": {}},
+      {"rotate": {"angle": "-90 - @deg", "pivotX": 120, "pivotY": 120}},
+      {"paint": {"style": "stroke", "strokeWidth": 20,
+                 "sweepGradient": {"centerX": 120, "centerY": 120,
+                   "colors": ["#FFFF0000", "#FFFFFF00", "#FF00FF00", "#FF00FFFF", "#FF0000FF", "#FFFF00FF", "#FFFF0000"]}}},
+      {"drawCircle": {"cx": 120, "cy": 120, "radius": 96}},
+      {"restore": {}},
+
+      {"paint": {"shader": 0, "color": "#FF07090C", "style": "stroke", "strokeWidth": 2}},
+      {"loop": {"index": "i", "from": 0, "until": 36, "commands": [
+        {"save": {}},
+        {"translate": {"dx": 120, "dy": 120}},
+        {"rotate": {"angle": "i * 10"}},
+        {"drawLine": {"x1": 0, "y1": -106, "x2": 0, "y2": -86}},
+        {"restore": {}}
+      ]}},
+
+      {"save": {}},
+      {"translate": {"dx": 120, "dy": 120}},
+      {"paint": {"color": "#FFFFFFFF", "style": "fill"}},
+      {"drawPath": {"path": "$paths.pointer"}},
+      {"restore": {}},
+
+      {"paint": {"color": "#FF1A1F26", "style": "fill"}},
+      {"drawCircle": {"cx": 120, "cy": 120, "radius": 72}},
+      {"paint": {"color": "@colors.pick", "style": "fill"}},
+      {"drawCircle": {"cx": 120, "cy": 120, "radius": 64}},
+
+      {"paint": {"color": "#CC000000", "style": "fill", "textSize": 30}},
+      {"drawTextAnchored": {"text": {"type": "textMerge", "id1": {"type": "textFromFloat", "value": "@deg", "whole": 3, "decimal": 0, "flags": 5}, "id2": "°"},
+                            "x": 120, "y": 114, "panX": 0, "panY": 0}},
+      {"paint": {"color": "#99000000", "style": "fill", "textSize": 13}},
+      {"conditionalOperations": {"condition": "lt", "v1": "@mode", "v2": 0.5, "commands": [
+        {"drawTextAnchored": {"text": "VIVID", "x": 120, "y": 142, "panX": 0, "panY": 0}}]}},
+      {"conditionalOperations": {"condition": "eq", "v1": "@mode", "v2": 1, "commands": [
+        {"drawTextAnchored": {"text": "SOFT", "x": 120, "y": 142, "panX": 0, "panY": 0}}]}},
+      {"conditionalOperations": {"condition": "gt", "v1": "@mode", "v2": 1.5, "commands": [
+        {"drawTextAnchored": {"text": "PASTEL", "x": 120, "y": 142, "panX": 0, "panY": 0}}]}}
+    ]
+  }
+}

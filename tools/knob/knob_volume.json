@@ -1,0 +1,76 @@
+{
+  "header": {"apiLevel": 7, "width": 240, "height": 240, "profiles": 513,
+             "contentDescription": "Volume dial: turn the knob to set the level, press it to mute"},
+  "resources": {
+    "variables": {
+      "Control.knob": {"value": 12, "export": true},
+      "Control.knob_min": {"value": 0, "export": true},
+      "Control.knob_max": {"value": 20, "export": true},
+      "Control.knob_start": {"value": 12, "export": true},
+      "Control.press": {"value": 0, "export": true},
+      "lvl": "max(0, min(1, @Control.knob / 20))",
+      "muted": "@Control.press % 2",
+      "on": "1 - @muted",
+      "hue": "0.36 * (1 - @lvl)",
+      "sat": "0.85 * @on",
+      "val": "1 - 0.45 * @muted",
+      "l0": "max(0, min(1, @lvl * 5)) * 0.55 * @on",
+      "l1": "max(0, min(1, @lvl * 5 - 1)) * 0.55 * @on",
+      "l2": "max(0, min(1, @lvl * 5 - 2)) * 0.55 * @on",
+      "l3": "max(0, min(1, @lvl * 5 - 3)) * 0.55 * @on",
+      "l4": "max(0, min(1, @lvl * 5 - 4)) * 0.55 * @on"
+    },
+    "colors": {
+      "accent": {"hsv": ["@hue", "@sat", "@val"]},
+      "Control.led0": {"hsv": ["@hue", 0.9, "@l0"], "export": true},
+      "Control.led1": {"hsv": ["@hue", 0.9, "@l1"], "export": true},
+      "Control.led2": {"hsv": ["@hue", 0.9, "@l2"], "export": true},
+      "Control.led3": {"hsv": ["@hue", 0.9, "@l3"], "export": true},
+      "Control.led4": {"hsv": ["@hue", 0.9, "@l4"], "export": true}
+    }
+  },
+  "root": {
+    "type": "canvas",
+    "modifiers": ["fillMaxSize", {"background": "#FF0A0E13"}],
+    "commands": [
+      {"variable": {"name": "s", "value": "min(componentWidth() / 240, componentHeight() / 240)"}},
+      {"translate": {"dx": "(componentWidth() - 240) / 2", "dy": "(componentHeight() - 240) / 2"}},
+      {"scale": {"sx": "@s", "sy": "@s", "pivotX": 120, "pivotY": 120}},
+
+      {"paint": {"color": "#FF1C232C", "style": "stroke", "strokeWidth": 16, "strokeCap": "round"}},
+      {"drawArc": {"left": 22, "top": 22, "right": 218, "bottom": 218, "startAngle": 135, "sweepAngle": 270}},
+      {"paint": {"color": "@colors.accent", "style": "stroke", "strokeWidth": 16, "strokeCap": "round"}},
+      {"drawArc": {"left": 22, "top": 22, "right": 218, "bottom": 218, "startAngle": 135, "sweepAngle": "max(0.5, 270 * @lvl)"}},
+
+      {"paint": {"color": "#FF5A6573", "style": "stroke", "strokeWidth": 2, "strokeCap": "round"}},
+      {"loop": {"index": "i", "from": 0, "until": 21, "commands": [
+        {"save": {}},
+        {"translate": {"dx": 120, "dy": 120}},
+        {"rotate": {"angle": "i * 13.5 - 135"}},
+        {"drawLine": {"x1": 0, "y1": -80, "x2": 0, "y2": "-74 + 4 * (1 - step(i % 5, 0.5))"}},
+        {"restore": {}}
+      ]}},
+
+      {"save": {}},
+      {"translate": {"dx": 120, "dy": 120}},
+      {"rotate": {"angle": "270 * @lvl - 135"}},
+      {"paint": {"color": "#FFFFFFFF", "style": "fill"}},
+      {"drawCircle": {"cx": 0, "cy": -98, "radius": 5}},
+      {"restore": {}},
+
+      {"paint": {"color": "#FFF2F5F8", "style": "fill", "textSize": 64}},
+      {"drawTextAnchored": {"text": {"type": "textFromFloat", "value": "@lvl * 100", "whole": 3, "decimal": 0, "flags": 5},
+                            "x": 120, "y": 118, "panX": 0, "panY": 0}},
+      {"conditionalOperations": {"condition": "lt", "v1": "@muted", "v2": 0.5, "commands": [
+        {"paint": {"color": "#FF8A96A3", "style": "fill", "textSize": 15}},
+        {"drawTextAnchored": {"text": "VOLUME", "x": 120, "y": 162, "panX": 0, "panY": 0}}
+      ]}},
+      {"conditionalOperations": {"condition": "gt", "v1": "@muted", "v2": 0.5, "commands": [
+        {"paint": {"color": "#FFFF6B5E", "style": "fill", "textSize": 15}},
+        {"drawTextAnchored": {"text": "MUTED", "x": 120, "y": 162, "panX": 0, "panY": 0}}
+      ]}},
+      {"paint": {"color": "#FF4A5562", "style": "fill", "textSize": 11}},
+      {"drawTextAnchored": {"text": "turn  ·  press to mute", "x": 120, "y": 204, "panX": 0, "panY": 0}}
+    ]
+  }
+}

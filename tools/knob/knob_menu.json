@@ -1,0 +1,557 @@
+{
+ "header": {
+  "apiLevel": 7,
+  "width": 240,
+  "height": 240,
+  "profiles": 513,
+  "contentDescription": "Demo menu: turn the knob to choose, press it to open; hold the knob anywhere to come back here"
+ },
+ "resources": {
+  "variables": {
+   "Control.knob": {
+    "value": 0,
+    "export": true
+   },
+   "sel": "(@Control.knob % 8 + 8) % 8",
+   "selHue": "arrayGet(@hues, @sel)",
+   "v0": "1 - min(1, abs(@sel - 0))",
+   "v1": "1 - min(1, abs(@sel - 1))",
+   "v2": "1 - min(1, abs(@sel - 2))",
+   "v3": "1 - min(1, abs(@sel - 3))",
+   "v4": "1 - min(1, abs(@sel - 4))",
+   "v5": "1 - min(1, abs(@sel - 5))",
+   "v6": "1 - min(1, abs(@sel - 6))",
+   "v7": "1 - min(1, abs(@sel - 7))"
+  },
+  "colors": {
+   "Control.led": {
+    "hsv": [
+     "@selHue",
+     0.9,
+     0.45
+    ],
+    "export": true
+   },
+   "c0": {
+    "hsv": [
+     0.02,
+     0.72,
+     1
+    ]
+   },
+   "c1": {
+    "hsv": [
+     0.1,
+     0.72,
+     1
+    ]
+   },
+   "c2": {
+    "hsv": [
+     0.3,
+     0.72,
+     1
+    ]
+   },
+   "c3": {
+    "hsv": [
+     0.48,
+     0.72,
+     1
+    ]
+   },
+   "c4": {
+    "hsv": [
+     0.58,
+     0.72,
+     1
+    ]
+   },
+   "c5": {
+    "hsv": [
+     0.68,
+     0.72,
+     1
+    ]
+   },
+   "c6": {
+    "hsv": [
+     0.78,
+     0.72,
+     1
+    ]
+   },
+   "c7": {
+    "hsv": [
+     0.9,
+     0.72,
+     1
+    ]
+   }
+  },
+  "floatArrays": {
+   "hues": [
+    0.02,
+    0.1,
+    0.3,
+    0.48,
+    0.58,
+    0.68,
+    0.78,
+    0.9
+   ]
+  }
+ },
+ "root": [
+  {
+   "variable": {
+    "name": "Control.items",
+    "vtype": "string",
+    "value": "knob_volume knob_timer activity_rings under_the_sea gmt_watch moon_phase_dial knob_hue sakura_season",
+    "export": true
+   }
+  },
+  {
+   "box": {
+    "modifiers": [
+     "fillMaxSize",
+     {
+      "background": "#FF0A0C10"
+     }
+    ],
+    "horizontalAlignment": "center",
+    "verticalAlignment": "center",
+    "children": [
+     {
+      "canvas": {
+       "modifiers": [
+        "fillMaxSize"
+       ],
+       "commands": [
+        {
+         "variable": {
+          "name": "s",
+          "value": "min(componentWidth() / 240, componentHeight() / 240)"
+         }
+        },
+        {
+         "translate": {
+          "dx": "(componentWidth() - 240) / 2",
+          "dy": "(componentHeight() - 240) / 2"
+         }
+        },
+        {
+         "scale": {
+          "sx": "@s",
+          "sy": "@s",
+          "pivotX": 120,
+          "pivotY": 120
+         }
+        },
+        {
+         "paint": {
+          "color": "@colors.c0",
+          "style": "stroke",
+          "strokeWidth": "6 + 8 * @v0",
+          "strokeCap": "round"
+         }
+        },
+        {
+         "paint": {
+          "alpha": "0.28 + 0.72 * @v0"
+         }
+        },
+        {
+         "drawArc": {
+          "left": 16,
+          "top": 16,
+          "right": 224,
+          "bottom": 224,
+          "startAngle": -107.5,
+          "sweepAngle": 35.0
+         }
+        },
+        {
+         "paint": {
+          "color": "@colors.c1",
+          "style": "stroke",
+          "strokeWidth": "6 + 8 * @v1",
+          "strokeCap": "round"
+         }
+        },
+        {
+         "paint": {
+          "alpha": "0.28 + 0.72 * @v1"
+         }
+        },
+        {
+         "drawArc": {
+          "left": 16,
+          "top": 16,
+          "right": 224,
+          "bottom": 224,
+          "startAngle": -62.5,
+          "sweepAngle": 35.0
+         }
+        },
+        {
+         "paint": {
+          "color": "@colors.c2",
+          "style": "stroke",
+          "strokeWidth": "6 + 8 * @v2",
+          "strokeCap": "round"
+         }
+        },
+        {
+         "paint": {
+          "alpha": "0.28 + 0.72 * @v2"
+         }
+        },
+        {
+         "drawArc": {
+          "left": 16,
+          "top": 16,
+          "right": 224,
+          "bottom": 224,
+          "startAngle": -17.5,
+          "sweepAngle": 35.0
+         }
+        },
+        {
+         "paint": {
+          "color": "@colors.c3",
+          "style": "stroke",
+          "strokeWidth": "6 + 8 * @v3",
+          "strokeCap": "round"
+         }
+        },
+        {
+         "paint": {
+          "alpha": "0.28 + 0.72 * @v3"
+         }
+        },
+        {
+         "drawArc": {
+          "left": 16,
+          "top": 16,
+          "right": 224,
+          "bottom": 224,
+          "startAngle": 27.5,
+          "sweepAngle": 35.0
+         }
+        },
+        {
+         "paint": {
+          "color": "@colors.c4",
+          "style": "stroke",
+          "strokeWidth": "6 + 8 * @v4",
+          "strokeCap": "round"
+         }
+        },
+        {
+         "paint": {
+          "alpha": "0.28 + 0.72 * @v4"
+         }
+        },
+        {
+         "drawArc": {
+          "left": 16,
+          "top": 16,
+          "right": 224,
+          "bottom": 224,
+          "startAngle": 72.5,
+          "sweepAngle": 35.0
+         }
+        },
+        {
+         "paint": {
+          "color": "@colors.c5",
+          "style": "stroke",
+          "strokeWidth": "6 + 8 * @v5",
+          "strokeCap": "round"
+         }
+        },
+        {
+         "paint": {
+          "alpha": "0.28 + 0.72 * @v5"
+         }
+        },
+        {
+         "drawArc": {
+          "left": 16,
+          "top": 16,
+          "right": 224,
+          "bottom": 224,
+          "startAngle": 117.5,
+          "sweepAngle": 35.0
+         }
+        },
+        {
+         "paint": {
+          "color": "@colors.c6",
+          "style": "stroke",
+          "strokeWidth": "6 + 8 * @v6",
+          "strokeCap": "round"
+         }
+        },
+        {
+         "paint": {
+          "alpha": "0.28 + 0.72 * @v6"
+         }
+        },
+        {
+         "drawArc": {
+          "left": 16,
+          "top": 16,
+          "right": 224,
+          "bottom": 224,
+          "startAngle": 162.5,
+          "sweepAngle": 35.0
+         }
+        },
+        {
+         "paint": {
+          "color": "@colors.c7",
+          "style": "stroke",
+          "strokeWidth": "6 + 8 * @v7",
+          "strokeCap": "round"
+         }
+        },
+        {
+         "paint": {
+          "alpha": "0.28 + 0.72 * @v7"
+         }
+        },
+        {
+         "drawArc": {
+          "left": 16,
+          "top": 16,
+          "right": 224,
+          "bottom": 224,
+          "startAngle": 207.5,
+          "sweepAngle": 35.0
+         }
+        },
+        {
+         "paint": {
+          "color": "#FF161A20",
+          "style": "fill"
+         }
+        },
+        {
+         "drawCircle": {
+          "cx": 120,
+          "cy": 120,
+          "radius": 78
+         }
+        }
+       ]
+      }
+     },
+     {
+      "column": {
+       "horizontalAlignment": "center",
+       "children": [
+        {
+         "box": {
+          "modifiers": [
+           {
+            "visibility": "@v0"
+           }
+          ],
+          "children": [
+           {
+            "Icon": {
+             "name": "volume_up",
+             "size": 56,
+             "color": "@colors.c0",
+             "filled": true
+            }
+           }
+          ]
+         }
+        },
+        {
+         "box": {
+          "modifiers": [
+           {
+            "visibility": "@v1"
+           }
+          ],
+          "children": [
+           {
+            "Icon": {
+             "name": "timer",
+             "size": 56,
+             "color": "@colors.c1",
+             "filled": true
+            }
+           }
+          ]
+         }
+        },
+        {
+         "box": {
+          "modifiers": [
+           {
+            "visibility": "@v2"
+           }
+          ],
+          "children": [
+           {
+            "Icon": {
+             "name": "radio_button_checked",
+             "size": 56,
+             "color": "@colors.c2",
+             "filled": true
+            }
+           }
+          ]
+         }
+        },
+        {
+         "box": {
+          "modifiers": [
+           {
+            "visibility": "@v3"
+           }
+          ],
+          "children": [
+           {
+            "Icon": {
+             "name": "scuba_diving",
+             "size": 56,
+             "color": "@colors.c3",
+             "filled": true
+            }
+           }
+          ]
+         }
+        },
+        {
+         "box": {
+          "modifiers": [
+           {
+            "visibility": "@v4"
+           }
+          ],
+          "children": [
+           {
+            "Icon": {
+             "name": "watch",
+             "size": 56,
+             "color": "@colors.c4",
+             "filled": true
+            }
+           }
+          ]
+         }
+        },
+        {
+         "box": {
+          "modifiers": [
+           {
+            "visibility": "@v5"
+           }
+          ],
+          "children": [
+           {
+            "Icon": {
+             "name": "dark_mode",
+             "size": 56,
+             "color": "@colors.c5",
+             "filled": true
+            }
+           }
+          ]
+         }
+        },
+        {
+         "box": {
+          "modifiers": [
+           {
+            "visibility": "@v6"
+           }
+          ],
+          "children": [
+           {
+            "Icon": {
+             "name": "palette",
+             "size": 56,
+             "color": "@colors.c6",
+             "filled": true
+            }
+           }
+          ]
+         }
+        },
+        {
+         "box": {
+          "modifiers": [
+           {
+            "visibility": "@v7"
+           }
+          ],
+          "children": [
+           {
+            "Icon": {
+             "name": "local_florist",
+             "size": 56,
+             "color": "@colors.c7",
+             "filled": true
+            }
+           }
+          ]
+         }
+        },
+        {
+         "box": {
+          "modifiers": [
+           {
+            "height": 6
+           }
+          ]
+         }
+        },
+        {
+         "TextChoice": {
+          "items": [
+           "Volume",
+           "Timer",
+           "Rings",
+           "Sea",
+           "Watch",
+           "Moon",
+           "Colour",
+           "Sakura"
+          ],
+          "index": "@sel",
+          "fontSize": 20,
+          "fontWeight": 500,
+          "color": "#FFF2F4F7"
+         }
+        },
+        {
+         "box": {
+          "modifiers": [
+           {
+            "height": 2
+           }
+          ]
+         }
+        },
+        {
+         "text": {
+          "text": "press to open",
+          "fontSize": 11,
+          "color": "#FF6B7480"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

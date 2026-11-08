@@ -13,6 +13,13 @@ if(CONFIG_KOBENTOVG_3D)
     list(APPEND DOCS ${DOCS3D})
 endif()
 
+# knob/: documents driven by a rotary knob and an LED ring (Control.knob, Control.led...), only
+# for boards that have one (their board component provides board/knob.h).
+if(EXISTS ${BOARD_DIR}/components/board/include/board/knob.h)
+    file(GLOB DOCS_KNOB ${RESCAN} ${CMAKE_CURRENT_LIST_DIR}/../../../../documents/knob/*.rc)
+    list(APPEND DOCS ${DOCS_KNOB})
+endif()
+
 # A board may name the documents it wants (CONFIG_RCPLAYER_DOCUMENTS, space-separated), in that
 # order; the first is shown at start. Empty: every document above.
 if(CONFIG_RCPLAYER_DOCUMENTS)

@@ -1,0 +1,95 @@
+{
+  "header": {"apiLevel": 7, "width": 240, "height": 240, "profiles": 513,
+             "contentDescription": "Kitchen timer: turn the knob to set the minutes, press it (or tap the screen) to start or stop"},
+  "resources": {
+    "variables": {
+      "Control.knob": {"value": 5, "export": true},
+      "Control.knob_min": {"value": 1, "export": true},
+      "Control.knob_max": {"value": 60, "export": true},
+      "Control.knob_start": {"value": 5, "export": true},
+      "running": 0,
+      "startAt": 0,
+      "total": 300,
+      "now": "timeInMin() * 60 + continuousSec() % 60",
+      "elapsed": "((@now - @startAt) % 86400 + 86400) % 86400",
+      "left": "max(0, @total - @elapsed)",
+      "shown": "ifElse(@Control.knob * 60, ceil(@left), @running)",
+      "frac": "ifElse(1, @left / @total, @running)",
+      "done": "@running * (1 - step(@left, 0))",
+      "blink": "@done * step(continuousSec() % 1, 0.5)",
+      "mm": "floor(@shown / 60)",
+      "ss": "@shown % 60",
+      "lit": "ifElse(0.12, 0.6, @running) * (1 - @done)",
+      "l0": "max(0, min(1, @frac * 5)) * @lit + @blink * 0.6",
+      "l1": "max(0, min(1, @frac * 5 - 1)) * @lit + @blink * 0.6",
+      "l2": "max(0, min(1, @frac * 5 - 2)) * @lit + @blink * 0.6",
+      "l3": "max(0, min(1, @frac * 5 - 3)) * @lit + @blink * 0.6",
+      "l4": "max(0, min(1, @frac * 5 - 4)) * @lit + @blink * 0.6",
+      "ledHue": "0.08 * (1 - @done)"
+    },
+    "colors": {
+      "Control.led0": {"hsv": ["@ledHue", 0.95, "@l0"], "export": true},
+      "Control.led1": {"hsv": ["@ledHue", 0.95, "@l1"], "export": true},
+      "Control.led2": {"hsv": ["@ledHue", 0.95, "@l2"], "export": true},
+      "Control.led3": {"hsv": ["@ledHue", 0.95, "@l3"], "export": true},
+      "Control.led4": {"hsv": ["@ledHue", 0.95, "@l4"], "export": true}
+    }
+  },
+  "root": {
+    "type": "canvas",
+    "modifiers": ["fillMaxSize", {"background": "#FF0B0D10"},
+      {"semantics": {"contentDescription": "Start or stop the timer", "clickable": true}},
+      {"onClick": [
+        {"type": "valueFloatExpressionChange", "target": "@startAt", "value": "timeInMin() * 60 + continuousSec() % 60"},
+        {"type": "valueFloatExpressionChange", "target": "@total", "value": "@Control.knob * 60"},
+        {"type": "valueFloatExpressionChange", "target": "@running", "value": "1 - @running"}
+      ]}],
+    "commands": [
+      {"variable": {"name": "s", "value": "min(componentWidth() / 240, componentHeight() / 240)"}},
+      {"translate": {"dx": "(componentWidth() - 240) / 2", "dy": "(componentHeight() - 240) / 2"}},
+      {"scale": {"sx": "@s", "sy": "@s", "pivotX": 120, "pivotY": 120}},
+
+      {"paint": {"color": "#FF2A2F36", "style": "stroke", "strokeWidth": 3, "strokeCap": "round"}},
+      {"loop": {"index": "i", "from": 0, "until": 60, "commands": [
+        {"save": {}},
+        {"translate": {"dx": 120, "dy": 120}},
+        {"rotate": {"angle": "i * 6"}},
+        {"drawLine": {"x1": 0, "y1": -112, "x2": 0, "y2": "-106 + 4 * (1 - step(i % 5, 0.5))"}},
+        {"restore": {}}
+      ]}},
+
+      {"paint": {"color": "#FF1B1F25", "style": "stroke", "strokeWidth": 12}},
+      {"drawCircle": {"cx": 120, "cy": 120, "radius": 90}},
+      {"paint": {"color": "#FFFF8A1F", "style": "stroke", "strokeWidth": 12, "strokeCap": "round"}},
+      {"conditionalOperations": {"condition": "gt", "v1": "@running", "v2": 0.5, "commands": [
+        {"drawArc": {"left": 30, "top": 30, "right": 210, "bottom": 210, "startAngle": -90, "sweepAngle": "-360 * @frac"}}]}},
+      {"conditionalOperations": {"condition": "lt", "v1": "@running", "v2": 0.5, "commands": [
+        {"paint": {"color": "#FF5C6672", "style": "stroke", "strokeWidth": 12, "strokeCap": "round"}},
+        {"drawArc": {"left": 30, "top": 30, "right": 210, "bottom": 210, "startAngle": -90, "sweepAngle": "6 * @Control.knob"}}]}},
+
+      {"conditionalOperations": {"condition": "gt", "v1": "@blink", "v2": 0.5, "commands": [
+        {"paint": {"color": "#FFE5483B", "style": "fill"}},
+        {"drawCircle": {"cx": 120, "cy": 120, "radius": 78}}]}},
+
+      {"paint": {"color": "#FFF4F6F8", "style": "fill", "textSize": 52}},
+      {"drawTextAnchored": {"text": {"type": "textMerge",
+          "id1": {"type": "textFromFloat", "value": "@mm", "whole": 2, "decimal": 0, "flags": 13},
+          "id2": {"type": "textMerge", "id1": ":", "id2": {"type": "textFromFloat", "value": "@ss", "whole": 2, "decimal": 0, "flags": 13}}},
+        "x": 120, "y": 116, "panX": 0, "panY": 0}},
+
+      {"paint": {"color": "#FF8A95A1", "style": "fill", "textSize": 13}},
+      {"conditionalOperations": {"condition": "lt", "v1": "@running", "v2": 0.5, "commands": [
+        {"drawTextAnchored": {"text": "TURN TO SET", "x": 120, "y": 156, "panX": 0, "panY": 0}},
+        {"paint": {"color": "#FF5C6672", "style": "fill", "textSize": 11}},
+        {"drawTextAnchored": {"text": "press to start", "x": 120, "y": 174, "panX": 0, "panY": 0}}]}},
+      {"conditionalOperations": {"condition": "gt", "v1": "@running - @done", "v2": 0.5, "commands": [
+        {"paint": {"color": "#FFFF8A1F", "style": "fill", "textSize": 13}},
+        {"drawTextAnchored": {"text": "RUNNING", "x": 120, "y": 156, "panX": 0, "panY": 0}},
+        {"paint": {"color": "#FF5C6672", "style": "fill", "textSize": 11}},
+        {"drawTextAnchored": {"text": "press to stop", "x": 120, "y": 174, "panX": 0, "panY": 0}}]}},
+      {"conditionalOperations": {"condition": "gt", "v1": "@done", "v2": 0.5, "commands": [
+        {"paint": {"color": "#FFFFFFFF", "style": "fill", "textSize": 15}},
+        {"drawTextAnchored": {"text": "TIME'S UP", "x": 120, "y": 156, "panX": 0, "panY": 0}}]}}
+    ]
+  }
+}

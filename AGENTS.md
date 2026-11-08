@@ -144,6 +144,11 @@ revisiting.
   and scaled whole to the screen (`rcstage::load` fit). `documents/3d/*.rc` are embedded only
   with `CONFIG_KOBENTOVG_3D`. A board may pick an ordered subset with
   `CONFIG_RCPLAYER_DOCUMENTS` in its `sdkconfig.rcplayer.defaults`.
+- `documents/knob/*.rc` (the knob demos: menu, volume, colour, timer) are embedded only for
+  boards whose `board` component has `board/knob.h` (the CrowPanel 1.28" rotary). Their
+  sources are `tools/knob/*.json`; `node tools/knob/build.mjs` compiles them with the sibling
+  `../kobento-mcp` converter (computed colours and components, which `tools/splash/json2rc.js`
+  lacks). The `Control.knob*` / `Control.led*` conventions are in docs/RC_SYSTEM_VARIABLES.md.
 - `tools/logo/` turns an SVG into an RC document: `svg2rc.py` bakes SVG transforms into
   absolute paths (RC has no skew matrix) and emits `paint`+`drawPath`; `build_logos.sh`
   compiles the brand logos to `documents/`. `tools/splash/` builds the boot splash

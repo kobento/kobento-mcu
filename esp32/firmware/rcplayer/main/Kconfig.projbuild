@@ -5,7 +5,7 @@ config RCPLAYER_DOCUMENTS
     default ""
     help
         Only these documents are built in, in this order (the first is shown at start).
-        Names are looked up in documents/, documents/fit/ and documents/3d/. Empty: every
+        Names are looked up in documents/, documents/fit/, documents/3d/ and documents/knob/. Empty: every
         document in documents/ and documents/fit/ (and documents/3d/ when 3D is on).
 
 endmenu

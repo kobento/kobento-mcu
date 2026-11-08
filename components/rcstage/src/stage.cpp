@@ -509,6 +509,27 @@ std::vector<std::string> namedVariables() {
     return out;
 }
 
+bool namedValueNow(const std::string& name, std::string& out) {
+    auto* v = sPlayer.named(name);
+    if (!v) return false;
+    out = sPlayer.valueOf(*v);
+    return true;
+}
+
+void click(float x, float y) {
+    if (x < 0 || y < 0) {
+        x = sPlayer.dpW / 2.0f;
+        y = sPlayer.dpH / 2.0f;
+    }
+    auto& doc = *sPlayer.doc;
+    auto& ctx = *sPlayer.ctx;
+    doc.touchDown(ctx, x, y);
+    doc.touchUp(ctx, x, y, 0, 0);
+    doc.onClick(ctx, x, y);
+    pushEvent({0, 0, "tap", x, y, {}, {}});
+    sDirty = true;
+}
+
 void bench() {
     board::presentWait();
     uint32_t* px = sBufs[sBack];
