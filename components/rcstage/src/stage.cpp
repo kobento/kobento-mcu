@@ -222,7 +222,7 @@ struct Player {
         return true;
     }
 
-    // NamedVariable types, as in androidx: 0 string, 1 float, 2 color, 4 integer.
+    // NamedVariable types, as in androidx: 0 string, 1 float, 2 color, 4 integer, 6 float array.
     bool setValue(const rccore::NamedVariable& nv, const std::string& value) {
         const auto* v = &nv;
         switch (v->varType) {
@@ -236,6 +236,19 @@ struct Player {
                 return true;
             }
             case 4: ctx->overrideInteger(v->varId, (int) std::strtol(value.c_str(), nullptr, 10)); return true;
+            case 6: {   // float array: numbers separated by commas or spaces
+                std::vector<float> f;
+                const char* p = value.c_str();
+                char* end = nullptr;
+                while (*p) {
+                    const float x = std::strtof(p, &end);
+                    if (end == p) { p++; continue; }
+                    f.push_back(x);
+                    p = end;
+                }
+                ctx->overrideFloatList(v->varId, f);
+                return true;
+            }
             default: return false;
         }
     }

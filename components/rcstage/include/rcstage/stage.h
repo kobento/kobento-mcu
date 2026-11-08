@@ -43,8 +43,8 @@ void show(std::vector<uint8_t> bytes, std::string name, bool fit = false);
 // (and optionally the color system.banner_color) receives them instead, and no overlay
 // is drawn over it.
 void setBanner(const std::string& title, const std::string& detail = {}, uint32_t argb = 0);
-// Set a document variable by its exported name (NAMED_VARIABLE): a number or, for text
-// variables, a string. Sticky, like RemoteContext.setNamed*Override: it is applied to every
+// Set a document variable by its exported name (NAMED_VARIABLE): a number, for text
+// variables a string, for float arrays numbers separated by commas ("0.1,0.5,0.9"). Sticky, like RemoteContext.setNamed*Override: it is applied to every
 // document loaded later that declares the name, and ignored by those that don't.
 void setNamed(std::string name, std::string value);
 // Listen to a class of named variables: fn(name, value) runs when a named variable of the
