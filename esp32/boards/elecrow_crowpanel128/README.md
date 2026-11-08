@@ -45,6 +45,13 @@ The schematic was not read.
 - Console extras: `knob` (prints counts, position and switch for 15 s), `turn N`, `press`,
   `hold` (simulate the knob), `led RRGGBB` / `led off`, `touch`, `i2c`.
 
+## The UART header and the link to another board
+
+The 4-pin UART header's TX is **GPIO43** (UART0 TX; found by a link search with the header
+wired to another board): free for a one-wire link to another board (open-drain). The chip's
+ROM may print its boot log on GPIO43 at reset; a 470 Ω-1 kΩ series resistor on the wire
+protects both ends.
+
 ## Not verified yet
 
 - Counts per detent (4 assumed). The direction is checked: clockwise counts up as wired.

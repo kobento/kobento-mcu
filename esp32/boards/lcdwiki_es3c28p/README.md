@@ -20,6 +20,7 @@ Pins from the LCDWIKI page "2.8inch ESP32-S3 Display" (not checked against the s
 | BOOT key (steps to the next document) | 0 |
 | SD CLK / CMD / D0–D3 | 38 / 40 / 39, 41, 48, 47 |
 | Battery ADC | 9 |
+| Link to a second board (one wire) | 44 (UART0 RX, serial header) |
 
 ## Teensy Audio Shield (optional)
 
