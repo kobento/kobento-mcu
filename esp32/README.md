@@ -17,6 +17,8 @@ is kobento-net / kobento-mcuApps).
 | [M5Stack PaperS3](boards/m5stack_papers3/README.md) | ESP32-S3R8, 8 MB PSRAM | 540x960 4.7" e-ink | ✅ (~0.5 s per refresh) |
 | [Elecrow CrowPanel 5.79"](boards/elecrow_crowpanel579/README.md) | ESP32-S3-WROOM-1-N8R8, 8 MB PSRAM | 792x272 e-paper, 5 keys | ✅ (~1.9 s per full refresh) |
 | [Waveshare ESP32-S3-Touch-AMOLED-1.8](boards/waveshare_s3_amoled18/README.md) | ESP32-S3R8, 8 MB PSRAM | 368x448 AMOLED, touch | ✅ |
+| [Elecrow CrowPanel 1.28" rotary](boards/elecrow_crowpanel128/README.md) | ESP32-S3R8, 8 MB PSRAM | 240x240 round GC9A01, touch, knob, 5 RGB LEDs | ✅ boots into the knob demos (`documents/knob/`) |
+| [LCDWIKI ES3C28P 2.8"](boards/lcdwiki_es3c28p/README.md) | ESP32-S3 N16R8, 8 MB PSRAM | 320x240 ILI9341V, FT6336G touch | ✅ BOOT key steps through the documents |
 
 ## Build, flash, run
 

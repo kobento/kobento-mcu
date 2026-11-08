@@ -1,0 +1,1066 @@
+{
+ "header": {
+  "apiLevel": 7,
+  "width": 320,
+  "height": 240,
+  "profiles": 513,
+  "contentDescription": "Breakout for a 320x240 screen (from 'BREAKOUT — Neon Arcade', https://mcp.kobento.dev/pages/9p4Y2sRsSJefOOh47_HdxQ/): drag or tap the playfield to move the paddle; break all thirty-five bricks without losing your three lives. New Game restarts."
+ },
+ "resources": {
+  "variables": {
+   "reset": {
+    "value": 0,
+    "export": true
+   },
+   "touched": {
+    "value": 0,
+    "export": true
+   },
+   "badgeVisible": "step(windowWidth(),379.5)"
+  }
+ },
+ "root": {
+  "box": {
+   "horizontalAlignment": "center",
+   "modifiers": [
+    "fillMaxSize",
+    {
+     "background": "#FF080D1B"
+    }
+   ],
+   "children": [
+    {
+     "column": {
+      "modifiers": [
+       {
+        "width": "min(windowWidth(),760)"
+       },
+       "fillMaxHeight",
+       {
+        "padding": 6
+       }
+      ],
+      "children": [
+       {
+        "box": {
+         "modifiers": [
+          "fillMaxWidth",
+          {
+           "verticalWeight": 1
+          }
+         ],
+         "children": [
+          {
+           "canvas": {
+            "modifiers": [
+             "fillMaxSize",
+             {
+              "onTouchDown": [
+               {
+                "type": "valueFloatChange",
+                "target": "@touched",
+                "value": 1
+               }
+              ]
+             },
+             {
+              "semantics": {
+               "contentDescription": "Breakout game board. Drag or tap to move the paddle."
+              }
+             }
+            ],
+            "commands": [
+             {
+              "touchExpression": {
+               "name": "finger",
+               "defaultValue": 180,
+               "min": 0,
+               "max": 10000,
+               "expression": [
+                "touchX()"
+               ],
+               "touchMode": 6
+              }
+             },
+             {
+              "variable": {
+               "name": "W",
+               "value": "componentWidth()"
+              }
+             },
+             {
+              "variable": {
+               "name": "H",
+               "value": "componentHeight()"
+              }
+             },
+             {
+              "variable": {
+               "name": "r",
+               "value": "min(7,max(4,@W*0.011))"
+              }
+             },
+             {
+              "variable": {
+               "name": "left",
+               "value": "max(18,@W*0.045)"
+              }
+             },
+             {
+              "variable": {
+               "name": "gap",
+               "value": "max(4,@W*0.009)"
+              }
+             },
+             {
+              "variable": {
+               "name": "cell",
+               "value": "(@W - 2*@left + @gap)/7"
+              }
+             },
+             {
+              "variable": {
+               "name": "bwid",
+               "value": "@cell-@gap"
+              }
+             },
+             {
+              "variable": {
+               "name": "bh",
+               "value": "max(10,min(20,@H*0.035))"
+              }
+             },
+             {
+              "variable": {
+               "name": "top",
+               "value": "max(62,min(84,@H*0.13))"
+              }
+             },
+             {
+              "variable": {
+               "name": "stride",
+               "value": "@bh+max(5,@H*0.012)"
+              }
+             },
+             {
+              "variable": {
+               "name": "padW",
+               "value": "max(64,min(118,@W*0.23))"
+              }
+             },
+             {
+              "variable": {
+               "name": "padY",
+               "value": "@H-30"
+              }
+             },
+             {
+              "variable": {
+               "name": "pad",
+               "value": "ifElse(@W/2,clamp(@padW/2+10,@W-@padW/2-10,@finger),@touched)"
+              }
+             },
+             {
+              "variable": {
+               "name": "dt",
+               "value": "min(deltaTime(),0.042)/2"
+              }
+             },
+             {
+              "paint": {
+               "ops": [
+                {
+                 "linearGradient": {
+                  "x1": 0,
+                  "y1": 0,
+                  "x2": 0,
+                  "y2": "@H",
+                  "colors": [
+                   "#FF131B38",
+                   "#FF0D1832",
+                   "#FF091329"
+                  ]
+                 }
+                }
+               ]
+              }
+             },
+             {
+              "drawRoundRect": {
+               "left": 0,
+               "top": 0,
+               "right": "@W",
+               "bottom": "@H",
+               "rx": 13,
+               "ry": 13
+              }
+             },
+             {
+              "paint": {
+               "ops": [
+                {
+                 "color": "#FF52618E"
+                },
+                {
+                 "shader": 0
+                },
+                {
+                 "alpha": 0.19
+                },
+                {
+                 "style": "fill"
+                }
+               ]
+              }
+             },
+             {
+              "loop": {
+               "index": "st",
+               "from": 0,
+               "until": 48,
+               "commands": [
+                {
+                 "drawCircle": {
+                  "cx": "fract(st*0.618033+0.16)*@W",
+                  "cy": "fract(st*0.38971+0.04)*@H",
+                  "radius": "0.45+(st%3)*0.22"
+                 }
+                }
+               ]
+              }
+             },
+             {
+              "paint": {
+               "ops": [
+                {
+                 "color": "#FF49D9DF"
+                },
+                {
+                 "alpha": 0.14
+                },
+                {
+                 "style": "fill"
+                }
+               ]
+              }
+             },
+             {
+              "drawLine": {
+               "x1": 9,
+               "y1": 47,
+               "x2": 9,
+               "y2": "@H-12"
+              }
+             },
+             {
+              "drawLine": {
+               "x1": "@W-9",
+               "y1": 47,
+               "x2": "@W-9",
+               "y2": "@H-12"
+              }
+             },
+             {
+              "paint": {
+               "ops": [
+                {
+                 "color": "#FF879CBB"
+                },
+                {
+                 "alpha": 1
+                },
+                {
+                 "style": "fill"
+                }
+               ]
+              }
+             },
+             {
+              "paint": {
+               "ops": [
+                {
+                 "textSize": 11
+                }
+               ]
+              }
+             },
+             {
+              "drawTextAnchored": {
+               "text": "SCORE",
+               "x": 22,
+               "y": 17,
+               "panX": -1,
+               "panY": 0
+              }
+             },
+             {
+              "paint": {
+               "ops": [
+                {
+                 "color": "#FF879CBB"
+                },
+                {
+                 "alpha": 1
+                },
+                {
+                 "style": "fill"
+                }
+               ]
+              }
+             },
+             {
+              "paint": {
+               "ops": [
+                {
+                 "textSize": 11
+                }
+               ]
+              }
+             },
+             {
+              "drawTextAnchored": {
+               "text": "LIVES",
+               "x": "@W-22",
+               "y": 17,
+               "panX": 1,
+               "panY": 0
+              }
+             },
+             {
+              "paint": {
+               "ops": [
+                {
+                 "color": "#FF26334B"
+                },
+                {
+                 "alpha": 1
+                },
+                {
+                 "style": "fill"
+                }
+               ]
+              }
+             },
+             {
+              "drawRect": {
+               "left": 20,
+               "top": 45,
+               "right": "@W-20",
+               "bottom": 46
+              }
+             },
+             {
+              "createParticles": {
+               "id": "ballState",
+               "count": 1,
+               "variables": [
+                "x",
+                "y",
+                "vx",
+                "vy",
+                "ma",
+                "mb",
+                "score",
+                "lives",
+                "seen",
+                "fresh",
+                "re",
+                "ix",
+                "iy",
+                "idx",
+                "gone",
+                "hit",
+                "pHit"
+               ],
+               "initialValues": [
+                "160",
+                "110",
+                "130",
+                "-235",
+                "0",
+                "0",
+                "0",
+                "3",
+                "0",
+                "1",
+                "0",
+                "3",
+                "0",
+                "3",
+                "0",
+                "0",
+                "0"
+               ]
+              }
+             },
+             {
+              "particlesLoop": {
+               "system": "@ballState",
+               "equations": [
+                "ifElse(ifElse(clamp(@r,@W-@r,x+vx*@dt),@W/2,step(y,@H-5)),@W/2,re)",
+                "ifElse(ifElse(max(49,y+vy*@dt),@H*0.68,step(y,@H-5)),@H*0.67,re)",
+                "ifElse(ifElse(ifElse(ifElse(vx,-vx,step(x+vx*@dt,@W-@r-0.01)*step(vx,0)+step(@r+0.01,x+vx*@dt)*step(0,vx)),clamp(-225,225,180*(x-@pad)/(@padW*0.5)+vx*0.25),pHit),125,step(y,@H-5)),125,re)*step(lives,0.5)*(1-step(score,345))",
+                "ifElse(ifElse(ifElse(ifElse(vy,-vy,hit+step(49.01,y+vy*@dt)*step(0,vy)),-abs(vy),pHit),-235,step(y,@H-5)),-235,re)*step(lives,0.5)*(1-step(score,345))",
+                "ifElse(ma+hit*(1-floor(ma/pow(2,idx))%2)*pow(2,idx)*(1-step(idx,17.5)),0,re)",
+                "ifElse(mb+hit*(1-floor(mb/pow(2,idx-18))%2)*pow(2,idx-18)*step(idx,17.5),0,re)",
+                "ifElse(score+hit*(1-floor(ifElse(ma,mb,step(idx,17.5))/pow(2,ifElse(idx,idx-18,step(idx,17.5))))%2)*10,0,re)",
+                "ifElse(lives-step(y,@H-5),3,re)",
+                "@reset",
+                "0",
+                "max(fresh,step(@reset,seen+0.5))",
+                "clamp(0,6,floor((x-@left)/@cell))",
+                "clamp(0,4,floor((y-@top)/@stride))",
+                "iy*7+ix",
+                "floor(ifElse(ma,mb,step(idx,17.5))/pow(2,ifElse(idx,idx-18,step(idx,17.5))))%2",
+                "(1-gone)*step(x,@left+ix*@cell-@r)*step(@left+(ix+1)*@cell-@gap+@r,x)*step(y,@top+iy*@stride-@r)*step(@top+iy*@stride+@bh+@r,y)*step(lives,0.5)",
+                "step(y,@padY-11)*step(@padY+6,y)*step(vy,0)*step(@padW/2+@r,abs(x-@pad))"
+               ],
+               "commands": []
+              }
+             },
+             {
+              "particlesLoop": {
+               "system": "@ballState",
+               "equations": [
+                "ifElse(ifElse(clamp(@r,@W-@r,x+vx*@dt),@W/2,step(y,@H-5)),@W/2,re)",
+                "ifElse(ifElse(max(49,y+vy*@dt),@H*0.68,step(y,@H-5)),@H*0.67,re)",
+                "ifElse(ifElse(ifElse(ifElse(vx,-vx,step(x+vx*@dt,@W-@r-0.01)*step(vx,0)+step(@r+0.01,x+vx*@dt)*step(0,vx)),clamp(-225,225,180*(x-@pad)/(@padW*0.5)+vx*0.25),pHit),125,step(y,@H-5)),125,re)*step(lives,0.5)*(1-step(score,345))",
+                "ifElse(ifElse(ifElse(ifElse(vy,-vy,hit+step(49.01,y+vy*@dt)*step(0,vy)),-abs(vy),pHit),-235,step(y,@H-5)),-235,re)*step(lives,0.5)*(1-step(score,345))",
+                "ifElse(ma+hit*(1-floor(ma/pow(2,idx))%2)*pow(2,idx)*(1-step(idx,17.5)),0,re)",
+                "ifElse(mb+hit*(1-floor(mb/pow(2,idx-18))%2)*pow(2,idx-18)*step(idx,17.5),0,re)",
+                "ifElse(score+hit*(1-floor(ifElse(ma,mb,step(idx,17.5))/pow(2,ifElse(idx,idx-18,step(idx,17.5))))%2)*10,0,re)",
+                "ifElse(lives-step(y,@H-5),3,re)",
+                "@reset",
+                "0",
+                "max(fresh,step(@reset,seen+0.5))",
+                "clamp(0,6,floor((x-@left)/@cell))",
+                "clamp(0,4,floor((y-@top)/@stride))",
+                "iy*7+ix",
+                "floor(ifElse(ma,mb,step(idx,17.5))/pow(2,ifElse(idx,idx-18,step(idx,17.5))))%2",
+                "(1-gone)*step(x,@left+ix*@cell-@r)*step(@left+(ix+1)*@cell-@gap+@r,x)*step(y,@top+iy*@stride-@r)*step(@top+iy*@stride+@bh+@r,y)*step(lives,0.5)",
+                "step(y,@padY-11)*step(@padY+6,y)*step(vy,0)*step(@padW/2+@r,abs(x-@pad))"
+               ],
+               "commands": []
+              }
+             },
+             {
+              "particlesComparison": {
+               "systemId": "@ballState",
+               "min": 0,
+               "max": 1,
+               "condition": "1",
+               "commands": [
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FF26344F"
+                   },
+                   {
+                    "alpha": 1
+                   },
+                   {
+                    "style": "fill"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "loop": {
+                  "index": "j",
+                  "from": 0,
+                  "until": 35,
+                  "commands": [
+                   {
+                    "variable": {
+                     "name": "c",
+                     "value": "j%7"
+                    }
+                   },
+                   {
+                    "variable": {
+                     "name": "row",
+                     "value": "floor(j/7)"
+                    }
+                   },
+                   {
+                    "drawRoundRect": {
+                     "left": "@left+@c*@cell",
+                     "top": "@top+@row*@stride",
+                     "right": "@left+@c*@cell+@bwid",
+                     "bottom": "@top+@row*@stride+@bh",
+                     "rx": "@bh*0.23",
+                     "ry": "@bh*0.23"
+                    }
+                   }
+                  ]
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FFFFFFFF"
+                   },
+                   {
+                    "alpha": 1
+                   },
+                   {
+                    "linearGradient": {
+                     "x1": 0,
+                     "y1": "@top",
+                     "x2": 0,
+                     "y2": "@top+5*@stride",
+                     "colors": [
+                      "#FFFF6C85",
+                      "#FFFFB06B",
+                      "#FFF5D66A",
+                      "#FF5CE2CD",
+                      "#FF7D9DF9",
+                      "#FF7D9DF9"
+                     ]
+                    }
+                   }
+                  ]
+                 }
+                },
+                {
+                 "loop": {
+                  "index": "k",
+                  "from": 0,
+                  "until": 35,
+                  "commands": [
+                   {
+                    "variable": {
+                     "name": "c2",
+                     "value": "k%7"
+                    }
+                   },
+                   {
+                    "variable": {
+                     "name": "row2",
+                     "value": "floor(k/7)"
+                    }
+                   },
+                   {
+                    "paint": {
+                     "ops": [
+                      {
+                       "alpha": "1-floor(ifElse(ma,mb,step(k,17.5))/pow(2,ifElse(k,k-18,step(k,17.5))))%2"
+                      }
+                     ]
+                    }
+                   },
+                   {
+                    "drawRoundRect": {
+                     "left": "@left+@c2*@cell",
+                     "top": "@top+@row2*@stride",
+                     "right": "@left+@c2*@cell+@bwid",
+                     "bottom": "@top+@row2*@stride+@bh",
+                     "rx": "@bh*0.23",
+                     "ry": "@bh*0.23"
+                    }
+                   }
+                  ]
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FF72F0ED"
+                   },
+                   {
+                    "shader": 0
+                   },
+                   {
+                    "shader": 0
+                   },
+                   {
+                    "alpha": 0.14
+                   },
+                   {
+                    "style": "fill"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawRoundRect": {
+                  "left": "@pad-@padW/2-7",
+                  "top": "@padY-7",
+                  "right": "@pad+@padW/2+7",
+                  "bottom": "@padY+15",
+                  "rx": 9,
+                  "ry": 9
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FF7CF2F1"
+                   },
+                   {
+                    "alpha": 1
+                   },
+                   {
+                    "style": "fill"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawRoundRect": {
+                  "left": "@pad-@padW/2",
+                  "top": "@padY-1",
+                  "right": "@pad+@padW/2",
+                  "bottom": "@padY+9",
+                  "rx": 5,
+                  "ry": 5
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FFFFFFFF"
+                   },
+                   {
+                    "alpha": 0.72
+                   },
+                   {
+                    "style": "fill"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawRoundRect": {
+                  "left": "@pad-@padW/2+10",
+                  "top": "@padY+1",
+                  "right": "@pad+@padW/2-10",
+                  "bottom": "@padY+3",
+                  "rx": 1,
+                  "ry": 1
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FF5CF0F7"
+                   },
+                   {
+                    "alpha": 0.13
+                   },
+                   {
+                    "style": "fill"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawCircle": {
+                  "cx": "x",
+                  "cy": "y",
+                  "radius": "@r*2.8"
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FF72F0FA"
+                   },
+                   {
+                    "alpha": 0.33
+                   },
+                   {
+                    "style": "fill"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawCircle": {
+                  "cx": "x",
+                  "cy": "y",
+                  "radius": "@r*1.8"
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FFFFFFFF"
+                   },
+                   {
+                    "alpha": 1
+                   },
+                   {
+                    "style": "fill"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawCircle": {
+                  "cx": "x",
+                  "cy": "y",
+                  "radius": "@r"
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FF19425F"
+                   },
+                   {
+                    "alpha": 1
+                   },
+                   {
+                    "style": "fill"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawCircle": {
+                  "cx": "x-@r*0.19",
+                  "cy": "y-@r*0.24",
+                  "radius": "@r*0.41"
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FFF2F7FA"
+                   },
+                   {
+                    "alpha": 1
+                   },
+                   {
+                    "style": "fill"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "textSize": 25
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawTextAnchored": {
+                  "text": {
+                   "type": "textFromFloat",
+                   "value": "score",
+                   "whole": 5,
+                   "decimal": 0
+                  },
+                  "x": 22,
+                  "y": 36,
+                  "panX": -1,
+                  "panY": 0
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FFF2F7FA"
+                   },
+                   {
+                    "alpha": 1
+                   },
+                   {
+                    "style": "fill"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "textSize": 23
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawTextAnchored": {
+                  "text": {
+                   "type": "textFromFloat",
+                   "value": "lives",
+                   "whole": 1,
+                   "decimal": 0
+                  },
+                  "x": "@W-22",
+                  "y": 36,
+                  "panX": 1,
+                  "panY": 0
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FF070F23"
+                   },
+                   {
+                    "alpha": "(1-step(lives,0.5))*0.89"
+                   },
+                   {
+                    "style": "fill"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawRoundRect": {
+                  "left": 13,
+                  "top": "@H*.36",
+                  "right": "@W-13",
+                  "bottom": "@H*.64",
+                  "rx": 16,
+                  "ry": 16
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FFFFFFFF",
+                    "alpha": "1-step(lives,0.5)"
+                   },
+                   {
+                    "alpha": "1-step(lives,0.5)"
+                   },
+                   {
+                    "style": "fill",
+                    "alpha": "1-step(lives,0.5)"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "textSize": 29,
+                    "alpha": "1-step(lives,0.5)"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawTextAnchored": {
+                  "text": "GAME OVER",
+                  "x": "@W/2",
+                  "y": "@H*.46",
+                  "panX": 0,
+                  "panY": 0
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FF91A7C5",
+                    "alpha": "1-step(lives,0.5)"
+                   },
+                   {
+                    "alpha": "1-step(lives,0.5)"
+                   },
+                   {
+                    "style": "fill",
+                    "alpha": "1-step(lives,0.5)"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "textSize": 13,
+                    "alpha": "1-step(lives,0.5)"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawTextAnchored": {
+                  "text": "Tap NEW GAME to try again",
+                  "x": "@W/2",
+                  "y": "@H*.53",
+                  "panX": 0,
+                  "panY": 0
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FF071E29"
+                   },
+                   {
+                    "alpha": "step(score,345)*0.89"
+                   },
+                   {
+                    "style": "fill"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawRoundRect": {
+                  "left": 13,
+                  "top": "@H*.36",
+                  "right": "@W-13",
+                  "bottom": "@H*.64",
+                  "rx": 16,
+                  "ry": 16
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FF80FBE6",
+                    "alpha": "step(score,345)"
+                   },
+                   {
+                    "alpha": "step(score,345)"
+                   },
+                   {
+                    "style": "fill",
+                    "alpha": "step(score,345)"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "textSize": 27,
+                    "alpha": "step(score,345)"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawTextAnchored": {
+                  "text": "LEVEL CLEARED",
+                  "x": "@W/2",
+                  "y": "@H*.46",
+                  "panX": 0,
+                  "panY": 0
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "color": "#FFE8FFFA",
+                    "alpha": "step(score,345)"
+                   },
+                   {
+                    "alpha": "step(score,345)"
+                   },
+                   {
+                    "style": "fill",
+                    "alpha": "step(score,345)"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "paint": {
+                  "ops": [
+                   {
+                    "textSize": 13,
+                    "alpha": "step(score,345)"
+                   }
+                  ]
+                 }
+                },
+                {
+                 "drawTextAnchored": {
+                  "text": "ALL 35 BRICKS DESTROYED",
+                  "x": "@W/2",
+                  "y": "@H*.53",
+                  "panX": 0,
+                  "panY": 0
+                 }
+                }
+               ]
+              }
+             }
+            ]
+           }
+          }
+         ]
+        }
+       },
+       {
+        "row": {
+         "verticalAlignment": "center",
+         "modifiers": [
+          "fillMaxWidth",
+          {
+           "height": 40
+          }
+         ],
+         "children": [
+          {
+           "column": {
+            "modifiers": [
+             {
+              "horizontalWeight": 1
+             }
+            ],
+            "children": [
+             {
+              "text": {
+               "value": "BREAKOUT  ·  drag to move",
+               "fontSize": 11,
+               "fontWeight": 800,
+               "color": "#FF7CF2E7"
+              }
+             }
+            ]
+           }
+          },
+          {
+           "Button": {
+            "label": "NEW GAME",
+            "style": "outlined",
+            "color": "#FF7CF2E7",
+            "surface": "#FF080D1B",
+            "onClick": {
+             "type": "valueFloatExpressionChange",
+             "target": "@reset",
+             "value": "@reset+1"
+            }
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ]
+  }
+ }
+}
