@@ -52,8 +52,14 @@ wired to another board): free for a one-wire link to another board (open-drain).
 ROM may print its boot log on GPIO43 at reset; a 470 Ω-1 kΩ series resistor on the wire
 protects both ends.
 
+## Rotation
+
+`kRotation` in `components/board/src/board.cpp` turns the picture clockwise by 0, 90, 180 or 270
+degrees, set to 90 by default. The panel does the turning through MADCTL, so it costs nothing per
+frame, and `readTouch` turns touch coordinates to match. Checked on the device at 90. Screenshots
+are taken before the panel, so they stay upright.
+
 ## Not verified yet
 
 - Counts per detent (4 assumed). The direction is checked: clockwise counts up as wired.
 - The LED order round the ring (clockwise from the top assumed) and their colour order (GRB).
-- The panel's orientation relative to the touch coordinates (MADCTL 0x08, no swap).

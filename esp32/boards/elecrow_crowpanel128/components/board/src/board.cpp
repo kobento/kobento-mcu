@@ -52,6 +52,18 @@ static constexpr gpio_num_t kSclk = GPIO_NUM_10, kMosi = GPIO_NUM_11, kLcdCs = G
 // a frame on the wire.
 static constexpr int kLcdHz = 80 * 1000 * 1000;
 static constexpr int kStripLines = 24;
+
+// How the picture is turned on the panel, clockwise in degrees: 0, 90, 180 or 270. The panel
+// turns it (MADCTL row/column swap and mirrors), so it costs nothing a frame; touch is turned
+// to match in readTouch. Screenshots (dumpFrame, rcstage capture) are taken before the panel,
+// so they stay upright.
+static constexpr int kRotation = 90;
+static_assert(kRotation == 0 || kRotation == 90 || kRotation == 180 || kRotation == 270,
+              "kRotation: 0, 90, 180 or 270");
+// MADCTL: MY 0x80, MX 0x40, MV (swap rows and columns) 0x20, BGR 0x08.
+static constexpr uint8_t kMadctl = 0x08 | (kRotation == 90  ? 0x20 | 0x40
+                                         : kRotation == 180 ? 0x40 | 0x80
+                                         : kRotation == 270 ? 0x20 | 0x80 : 0);
 static constexpr size_t kStripBytes = (size_t) kWidth * kStripLines * 2;
 
 static esp_lcd_panel_io_handle_t sIo;
@@ -371,7 +383,7 @@ bool displayInit() {
     }
 
     // GC9A01, the common init (Waveshare's LCD_1in28, TFT_eSPI, esp_lcd_gc9a01): unlock the
-    // inter registers, then power, gamma and timing. MADCTL 0x08: BGR, no mirroring.
+    // inter registers, then power, gamma and timing. MADCTL from kRotation.
     cmd(0xEF);
     cmd(0xEB, {0x14});
     cmd(0xFE);
@@ -390,7 +402,7 @@ bool displayInit() {
     cmd(0x8E, {0xFF});
     cmd(0x8F, {0xFF});
     cmd(0xB6, {0x00, 0x20});
-    cmd(0x36, {0x08});
+    cmd(0x36, {kMadctl});   // BGR, turned by kRotation
     cmd(0x3A, {0x05});   // RGB565
     cmd(0x90, {0x08, 0x08, 0x08, 0x08});
     cmd(0xBD, {0x06});
@@ -545,9 +557,14 @@ Touch readTouch() {
     const int x = ((d[1] & 0x0F) << 8) | d[2];
     const int y = ((d[3] & 0x0F) << 8) | d[4];
     if (x >= kWidth || y >= kHeight) return t;
+    // The touch panel reports in the panel's own frame; turn it into the picture's.
     t.down = true;
-    t.x = x;
-    t.y = y;
+    switch (kRotation) {
+        case 90:  t.x = y;               t.y = kWidth - 1 - x;  break;
+        case 180: t.x = kWidth - 1 - x;  t.y = kHeight - 1 - y; break;
+        case 270: t.x = kHeight - 1 - y; t.y = x;               break;
+        default:  t.x = x;               t.y = y;               break;
+    }
     return t;
 }
 
