@@ -1,9 +1,9 @@
-# RemoteCompose core engine from the sibling remotecompose-experiments checkout.
-# Override with -DRC_EXPERIMENTS=/path/to/remotecompose-experiments.
-if(NOT DEFINED RC_EXPERIMENTS)
-    get_filename_component(RC_EXPERIMENTS ${CMAKE_CURRENT_LIST_DIR}/../../../remotecompose-experiments ABSOLUTE)
+# RemoteCompose core engine from the sibling kobento-libs checkout (where it moved from
+# remotecompose-experiments). Override with -DKOBENTO_LIBS=/path/to/kobento-libs.
+if(NOT DEFINED KOBENTO_LIBS)
+    get_filename_component(KOBENTO_LIBS ${CMAKE_CURRENT_LIST_DIR}/../../../kobento-libs ABSOLUTE)
 endif()
-set(RCCORE_DIR ${RC_EXPERIMENTS}/players/cpp/lib/rccore)
+set(RCCORE_DIR ${KOBENTO_LIBS}/lib/rccore)
 file(GLOB_RECURSE RCCORE_SRCS ${RCCORE_DIR}/src/*.cpp)
 
 if(ESP_PLATFORM)

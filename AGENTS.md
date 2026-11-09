@@ -12,8 +12,8 @@ RemoteCompose is the spec and the `.rc` format; Kobento is the implementation br
 README.md). This repo, **kobento-mcu**, is the **microcontroller library for displaying RC
 documents**, plus a minimal sample player for each supported board.
 
-- The library is `components/`: the engine `rccore` (built from `../remotecompose-experiments`,
-  the future kobento-cpp), **KobentoVG** (our ThorVG fork + its `ThorvgPaintContext` backend,
+- The library is `components/`: the engine `rccore` (built from `../kobento-libs`, where it moved
+  from remotecompose-experiments), **KobentoVG** (our ThorVG fork + its `ThorvgPaintContext` backend,
   `components/kobentovg`, namespace `kobentovg`), and `rcstage` (puts one RC document on a
   screen: player task, touch, device-state variables).
 - A sample player embeds the documents in `documents/` and shows them, cycled by the board's
@@ -38,7 +38,7 @@ Shared library at the top level (`components/`, `third_party/`, `documents/`, `a
 
 | Path | What | Notes |
 |---|---|---|
-| `../remotecompose-experiments` | `players/cpp/lib/rccore`, the engine (future kobento-cpp) | Built through `components/rccore`. **Owned by other agents:** report engine bugs (below), don't change it from here. |
+| `../kobento-libs` | `lib/rccore`, the engine (moved from `../remotecompose-experiments`, now frozen) | Built through `components/rccore` (`-DKOBENTO_LIBS=` overrides). **Owned by other agents:** report engine bugs (below), don't change it from here unless the owner asks. |
 | `../STM32CubeU5` | ST's STM32CubeU5 HAL + BSP | Only for the `stm32/` build. |
 
 ## Toolchain (macOS)
@@ -179,7 +179,7 @@ revisiting.
 
 Find engine bugs with `rc2png` first; it is the same engine as the device. Since 2026-10-19
 the engine belongs to other agents: **write a bug up here rather than fixing it in
-`../remotecompose-experiments`.**
+`../kobento-libs`** (unless the owner asks for the fix).
 
 Known gaps against the Java reference (androidx `remote-core`), not fixed:
 - **Text styles ignored.** CoreText parameter 24 (`textStyleId`) is skipped, so a size/colour/
@@ -189,6 +189,8 @@ Known gaps against the Java reference (androidx `remote-core`), not fixed:
   once a `wakeIn` delay is consumed it can only shrink.
 - **`densityBehavior` (header tag 27) isn't read**; rcstage lays out in dp and scales drawing,
   so DP documents match Java and legacy/pixels documents draw larger.
+- **Layout animation tweened GONE components** (fixed in kobento-libs, branch
+  `fix/layout-anim-gone`): see docs/ENGINE_BUG_LAYOUT_ANIMATION.md.
 - `timeInSec` differs between players (Java: second within the hour; rccore: seconds since
   midnight). `rc2json` stops on `documents/fit/maze.rc` (unknown opcode 27).
 - `rccore` is built with `-DESP_PLATFORM=1` on the STM32 for its newlib time path (newlib's

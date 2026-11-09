@@ -18,14 +18,14 @@ separate repositories.
 | **kobento-mcu** (this) | the MCU library for displaying RC docs + minimal sample players (ESP32, STM32) |
 | kobento-net *(planned)* | networking/transport — pushing documents to a device (formerly rcNet) |
 | kobento-mcuApps *(planned)* | full apps and integrations built on kobento-mcu (Home Assistant, Muse, Wi-Fi UI) |
-| kobento-cpp *(planned)* | the C++ RemoteCompose core engine (today built from `../remotecompose-experiments`) |
+| kobento-libs | the C++ RemoteCompose core engine, `lib/rccore` (moved from `../remotecompose-experiments`) |
 | kobento-typescript / kobento-web / kobento-inspector *(planned)* | TS player + `json2rc`, web player, document inspector |
 
 ## Layout
 
 ```
 components/          the library, shared by every target
-  rccore/            CMake glue: builds the engine from ../remotecompose-experiments (→ kobento-cpp)
+  rccore/            CMake glue: builds the engine from ../kobento-libs
   thorvg/            CMake glue + config.h for the vendored ThorVG fork (host and firmware)
   kobentovg/         ThorvgPaintContext: the RemoteCompose PaintContext on ThorVG's rasterizer
   rcstage/           one RC document live on a screen: player task, touch, variables, device state
@@ -60,8 +60,8 @@ build/flash/test, the architecture and the known traps.
 
 ## Expected beside this repository
 
-- `../remotecompose-experiments` — the `rccore` engine (the future kobento-cpp). Built in place
-  for now; the build repoints to the Kobento libs once they are rebuilt.
+- `../kobento-libs` — the `rccore` engine (`lib/rccore`), built in place (`-DKOBENTO_LIBS=`
+  overrides the path).
 - `../STM32CubeU5` — ST's HAL/BSP, for the STM32 build only.
 
 ## Relationship to RemoteCompose

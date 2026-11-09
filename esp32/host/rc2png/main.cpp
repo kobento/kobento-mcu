@@ -4,7 +4,7 @@
 //   rc2png in.rc out.png [--fit W H] [--native] [--theme light|dark] [--bg AARRGGBB]
 //                        [--density D] [--frames N] [--anim SEC] [--time MS] [--bench N]
 //                        [--sys ID=VALUE]... [--named NAME=VALUE]... [--click X,Y]...
-//                        [--drag X0,Y0,X1,Y1]... [--print PATTERN]... [--live NAME=VALUE]... [--live-ms MS]
+//                        [--drag X0,Y0,X1,Y1]... [--print PATTERN]... [--live NAME=VALUE]... [--live-ms MS] [--live-dump PREFIX]
 //
 // Default is "player" mode, the way a device shows a document: the document is laid out
 // into the W x H surface (window size vars 5/6 set), light theme. --native instead paints
@@ -107,6 +107,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> prints;                          // --print NAME or PREFIX*
     std::vector<std::pair<std::string, std::string>> live;    // --live NAME=VALUE
     int liveMs = 16;                                          // --live-ms: a frame's time, live
+    std::string liveDump;                                     // --live-dump PREFIX: every live frame
     std::vector<std::pair<std::string, std::string>> named;   // NAMED_VARIABLE overrides
     for (int i = 3; i < argc; i++) {
         if (!strcmp(argv[i], "--fit") && i + 2 < argc) { fitW = atoi(argv[++i]); fitH = atoi(argv[++i]); }
@@ -127,6 +128,7 @@ int main(int argc, char** argv) {
         }
         else if (!strcmp(argv[i], "--print") && i + 1 < argc) prints.push_back(argv[++i]);
         else if (!strcmp(argv[i], "--live-ms") && i + 1 < argc) liveMs = std::max(1, atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--live-dump") && i + 1 < argc) liveDump = argv[++i];
         else if (!strcmp(argv[i], "--live") && i + 1 < argc) {
             std::string kv = argv[++i];
             size_t eq = kv.find('=');
@@ -263,6 +265,12 @@ int main(int argc, char** argv) {
             std::this_thread::sleep_for(std::chrono::milliseconds(liveMs));
             frame();
             drawn++;
+            if (!liveDump.empty()) {   // PREFIX-NNN.png, numbered across all the live changes
+                static int dumped = 0;
+                char path[512];
+                snprintf(path, sizeof path, "%s-%03d.png", liveDump.c_str(), dumped++);
+                writePng(path, px.data(), sw, sh);
+            }
             const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
             if (!pc.doesNeedsRepaint() && ctx.getRepaintDelay(now) != 0) break;

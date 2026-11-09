@@ -12,7 +12,7 @@
 # Cross-compile for a Pi with a toolchain file:
 #   cmake -S linux -B linux/build-pi -G Ninja -DCMAKE_TOOLCHAIN_FILE=linux/cmake/rpi-cross.cmake
 #
-# rccore comes from the sibling remotecompose-experiments checkout (override -DRC_EXPERIMENTS=…),
+# rccore comes from the sibling kobento-libs checkout (override -DKOBENTO_LIBS=…),
 # exactly as esp32/host does.
 cmake_minimum_required(VERSION 3.20)
 project(kobento_linux CXX C)
