@@ -25,3 +25,9 @@ CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
 
 # ── 3D on: 8 MB of PSRAM, a small screen ──
 CONFIG_KOBENTOVG_3D=y
+
+# Bigger caches: the frame is drawn in PSRAM (320x240 ARGB, 300 KB) and the engine's code
+# runs from flash, so both caches see heavy traffic.
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
