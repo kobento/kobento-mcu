@@ -214,6 +214,18 @@ int main(int argc, char** argv) {
                 if (strlen(h) <= 6) c |= 0xFF000000u;
                 ctx.overrideColor(nv->varId, (int) c);
             } else if (nv->varType == 4) ctx.overrideInteger(nv->varId, atoi(v.c_str()));
+            else if (nv->varType == 6) {   // float array: numbers separated by commas or spaces
+                std::vector<float> f;
+                const char* p = v.c_str();
+                char* end = nullptr;
+                while (*p) {
+                    const float x = std::strtof(p, &end);
+                    if (end == p) { p++; continue; }
+                    f.push_back(x);
+                    p = end;
+                }
+                ctx.overrideFloatList(nv->varId, f);
+            }
         }
     };
     for (auto& [n, v] : named) setNamed(n, v);
