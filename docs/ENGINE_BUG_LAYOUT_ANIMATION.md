@@ -1,6 +1,6 @@
 # rccore bug: layout animation tweens GONE components (2026-11-09)
 
-**Fixed** in `../kobento-libs` (branch `fix/layout-anim-gone`, with `tests/layout_anim_test.cpp`);
+**Fixed** in `../kobento-libs` (`9669c90` on `main`, with `tests/layout_anim_test.cpp`);
 the engine moved there from `remotecompose-experiments`, whose line numbers are the same.
 Found on a CrowPanel 1.28" knob document (`knob_fx.rc`, no longer in this repository), reproduced on the Mac with the same engine.
 

@@ -189,8 +189,8 @@ Known gaps against the Java reference (androidx `remote-core`), not fixed:
   once a `wakeIn` delay is consumed it can only shrink.
 - **`densityBehavior` (header tag 27) isn't read**; rcstage lays out in dp and scales drawing,
   so DP documents match Java and legacy/pixels documents draw larger.
-- **Layout animation tweened GONE components** (fixed in kobento-libs, branch
-  `fix/layout-anim-gone`): see docs/ENGINE_BUG_LAYOUT_ANIMATION.md.
+- **Layout animation tweened GONE components** (fixed in kobento-libs `9669c90`):
+  see docs/ENGINE_BUG_LAYOUT_ANIMATION.md.
 - `timeInSec` differs between players (Java: second within the hour; rccore: seconds since
   midnight). `rc2json` stops on `documents/fit/maze.rc` (unknown opcode 27).
 - `rccore` is built with `-DESP_PLATFORM=1` on the STM32 for its newlib time path (newlib's
