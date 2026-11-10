@@ -18,6 +18,9 @@ struct Hooks {
     void (*tick)() = nullptr;                 // player task, every loop: the host's own work
     void (*longPress)() = nullptr;            // a still press held 1.5 s
     void (*tap)(float xDp, float yDp) = nullptr;   // a short still press, after the doc's onClick
+    // A press that moved (past 8 dp): each move, then done = true at the release (the last
+    // place). In the document's dp, after its own touchDrag. Never also a tap.
+    void (*drag)(float xDp, float yDp, bool done) = nullptr;
     // A document's hostAction(id, metadata) or HostNamedAction(name, value), run from a
     // click. Player task; hand slow work off. Named-action types: -1 none, 0 float,
     // 1 int, 2 string.

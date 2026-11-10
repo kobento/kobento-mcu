@@ -805,7 +805,10 @@ static void task(void*) {
             doc.touchDown(ctx, x, y);
         } else if (t.down) {
             if (std::fabs(x - downX) > 8 || std::fabs(y - downY) > 8) moved = true;
-            if (x != lastX || y != lastY) doc.touchDrag(ctx, x, y);
+            if (x != lastX || y != lastY) {
+                doc.touchDrag(ctx, x, y);
+                if (moved && sHooks.drag) sHooks.drag(x, y, false);
+            }
             lastX = x; lastY = y;
             if (!moved && now - downAt > 1500000) {
                 downAt = INT64_MAX / 2;                    // one long press per press
@@ -822,6 +825,7 @@ static void task(void*) {
             if (tap) doc.onClick(ctx, lastX, lastY);
             if (tap) pushEvent({0, 0, "tap", lastX, lastY, {}, {}});
             if (tap && sHooks.tap) sHooks.tap(lastX, lastY);
+            if (moved && sHooks.drag) sHooks.drag(lastX, lastY, true);
         }
         if (t.down || wasDown) sDirty = true;
         wasDown = t.down;
