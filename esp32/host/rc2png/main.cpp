@@ -3,7 +3,7 @@
 //
 //   rc2png in.rc out.png [--fit W H] [--native] [--theme light|dark] [--bg AARRGGBB]
 //                        [--density D] [--frames N] [--anim SEC] [--time MS] [--bench N]
-//                        [--sys ID=VALUE]... [--named NAME=VALUE]... [--click X,Y]...
+//                        [--sys ID=VALUE]... [--named NAME=VALUE]... [--bitmap NAME=W,H,FILE]... [--click X,Y]...
 //                        [--drag X0,Y0,X1,Y1]... [--print PATTERN]... [--live NAME=VALUE]... [--live-ms MS] [--live-dump PREFIX]
 //
 // Default is "player" mode, the way a device shows a document: the document is laid out
@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
     if (argc < 3) {
         std::cerr << "usage: rc2png in.rc out.png [--fit W H] [--native] [--theme light|dark]"
                      " [--bg AARRGGBB] [--density D] [--frames N] [--anim SEC] [--time MS]"
-                     " [--bench N] [--sys ID=VALUE]... [--named NAME=VALUE]... [--click X,Y]... [--drag X0,Y0,X1,Y1]... [--print PATTERN]...\n";
+                     " [--bench N] [--sys ID=VALUE]... [--named NAME=VALUE]... [--bitmap NAME=W,H,FILE]... [--click X,Y]... [--drag X0,Y0,X1,Y1]... [--print PATTERN]...\n";
         return 1;
     }
     int fitW = 0, fitH = 0, frames = 1, bench = 0;
@@ -109,6 +109,8 @@ int main(int argc, char** argv) {
     int liveMs = 16;                                          // --live-ms: a frame's time, live
     std::string liveDump;                                     // --live-dump PREFIX: every live frame
     std::vector<std::pair<std::string, std::string>> named;   // NAMED_VARIABLE overrides
+    struct HostBitmap { std::string name; int w, h; std::string file; };
+    std::vector<HostBitmap> bitmaps;   // --bitmap NAME=W,H,FILE: a host-drawn bitmap's pixels
     for (int i = 3; i < argc; i++) {
         if (!strcmp(argv[i], "--fit") && i + 2 < argc) { fitW = atoi(argv[++i]); fitH = atoi(argv[++i]); }
         else if (!strcmp(argv[i], "--frames") && i + 1 < argc) frames = std::max(1, atoi(argv[++i]));
@@ -137,6 +139,13 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--theme") && i + 1 < argc) theme = strcmp(argv[++i], "dark") ? -3 : -2;
         else if (!strcmp(argv[i], "--bg") && i + 1 < argc) bg = (uint32_t) strtoul(argv[++i], nullptr, 16);
         else if (!strcmp(argv[i], "--density") && i + 1 < argc) density = (float) atof(argv[++i]);
+        else if (!strcmp(argv[i], "--bitmap") && i + 1 < argc) {
+            // NAME=W,H,FILE: FILE holds W x H premultiplied ARGB8888, little-endian uint32 each
+            std::string kv = argv[++i];
+            size_t eq = kv.find('='), c1 = kv.find(',', eq), c2 = kv.find(',', c1 + 1);
+            if (eq == std::string::npos || c1 == std::string::npos || c2 == std::string::npos) continue;
+            bitmaps.push_back({kv.substr(0, eq), atoi(kv.c_str() + eq + 1), atoi(kv.c_str() + c1 + 1), kv.substr(c2 + 1)});
+        }
         else if ((!strcmp(argv[i], "--sys") || !strcmp(argv[i], "--named")) && i + 1 < argc) {
             bool isSys = argv[i][2] == 's';
             std::string kv = argv[++i];
@@ -229,6 +238,18 @@ int main(int argc, char** argv) {
         }
     };
     for (auto& [n, v] : named) setNamed(n, v);
+    for (auto& b : bitmaps) {   // as rcstage::setNamedBitmap
+        std::ifstream f(b.file, std::ios::binary);
+        std::vector<uint32_t> pxs((size_t) b.w * b.h);
+        if (!f.read(reinterpret_cast<char*>(pxs.data()), (std::streamsize) (pxs.size() * 4))) {
+            std::fprintf(stderr, "--bitmap %s: can't read %d x %d pixels from %s\n", b.name.c_str(), b.w, b.h, b.file.c_str());
+            continue;
+        }
+        bool found = false;
+        for (auto* nv : vars)
+            if (nv->varName == b.name && nv->varType == 3) found = pc.setImagePixels(nv->varId, b.w, b.h, std::move(pxs));
+        if (!found) std::fprintf(stderr, "--bitmap %s: the document has no such image\n", b.name.c_str());
+    }
 
     const tvg::Matrix base{scale, 0, ox, 0, scale, oy, 0, 0, 1};
     auto frame = [&] {

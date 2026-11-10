@@ -301,6 +301,8 @@ static std::string sPendingName;
 static bool sPendingFit = false;
 static bool sHavePending = false;
 static std::vector<std::pair<std::string, std::string>> sPendingNamed;
+struct PendingBitmap { int w, h; std::vector<uint32_t> px; };
+static std::map<std::string, PendingBitmap> sPendingBitmaps;   // the newest per name
 static std::map<int, float> sPendingSystem;
 static std::string sBannerTitle, sBannerDetail;
 static uint32_t sBannerArgb = 0;
@@ -317,6 +319,7 @@ static const char* typeName(int t) {
         case 0: return "text";
         case 1: return "number";
         case 2: return "color";
+        case 3: return "image";
         case 4: return "integer";
         default: return "other";
     }
@@ -606,6 +609,11 @@ void setNamed(std::string name, std::string value) {
     sPendingNamed.emplace_back(std::move(name), std::move(value));
 }
 
+void setNamedBitmap(std::string name, int w, int h, std::vector<uint32_t> pixels) {
+    std::lock_guard<std::mutex> g(sLock);
+    sPendingBitmaps[std::move(name)] = {w, h, std::move(pixels)};
+}
+
 void listenNamed(std::string pattern, NamedListener fn) {
     std::lock_guard<std::mutex> g(sListenLock);
     sListeners.emplace_back(std::move(pattern), fn);
@@ -679,6 +687,7 @@ static void drainInbox() {
     bool haveDoc = false, banner = false, fit = false;
     std::vector<std::pair<std::string, std::string>> named;
     std::map<int, float> system;
+    std::map<std::string, PendingBitmap> bitmaps;
     {
         std::lock_guard<std::mutex> g(sLock);
         if (sHavePending) {
@@ -689,6 +698,7 @@ static void drainInbox() {
             haveDoc = true;
         }
         named.swap(sPendingNamed);
+        bitmaps.swap(sPendingBitmaps);
         system.swap(sPendingSystem);
         banner = sBannerChanged;
         sBannerChanged = false;
@@ -708,6 +718,10 @@ static void drainInbox() {
         if (it != sNamedValues.end() && it->second == v) continue;
         sNamedValues[k] = v;
         if (sPlayer.setNamed(k, v)) sDirty = true;
+    }
+    for (auto& [k, b] : bitmaps) {   // a document's host-drawn bitmaps (setNamedBitmap)
+        const auto* v = sPlayer.named(k);
+        if (v && v->varType == 3 && sPlayer.pc->setImagePixels(v->varId, b.w, b.h, std::move(b.px))) sDirty = true;
     }
     for (auto& [id, v] : system) {
         auto it = sSystemValues.find(id);

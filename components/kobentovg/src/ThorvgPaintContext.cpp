@@ -637,9 +637,10 @@ void ThorvgPaintContext::drawImage(Image& source, float dl, float dt, float dw, 
         return;
     }
     if (mPaint.nearestFilter) pic->filter(tvg::FilterMethod::Nearest);
-    pic->size(dw, dh);
+    // Stretched to the box, as Android's drawBitmap(src, dst): ThorVG's Picture::size keeps a
+    // bitmap's aspect ratio (the smaller of the two scales), so scale with the matrix instead.
     tvg::Matrix saved = mMatrix;
-    mMatrix = mul(mMatrix, translateM(dl, dt));
+    mMatrix = mul(mMatrix, tvg::Matrix{dw / img.w, 0, dl, 0, dh / img.h, dt, 0, 0, 1});
     uint8_t a = mPaint.color >> 24;
     if (a != 255) pic->opacity(a);
     push(pic);
@@ -685,6 +686,18 @@ static bool decodeImage(const std::vector<uint8_t>& data, ThorvgPaintContext* /*
     c->add(pic);
     c->draw(true);
     c->sync();
+    return true;
+}
+
+bool ThorvgPaintContext::setImagePixels(int imageId, int w, int h, std::vector<uint32_t>&& px) {
+    if (w <= 0 || h <= 0 || px.size() < (size_t) w * h) return false;
+    // The document's empty bitmap op re-runs every paint pass but only allocates an image
+    // that has no pixels, so these stay until the host sends others.
+    Image& img = mImages[imageId];
+    img.w = w;
+    img.h = h;
+    img.px = std::move(px);
+    img.version++;   // a colour-filtered copy is rebuilt
     return true;
 }
 

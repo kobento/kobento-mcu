@@ -47,6 +47,13 @@ void setBanner(const std::string& title, const std::string& detail = {}, uint32_
 // variables a string, for float arrays numbers separated by commas ("0.1,0.5,0.9"). Sticky, like RemoteContext.setNamed*Override: it is applied to every
 // document loaded later that declares the name, and ignored by those that don't.
 void setNamed(std::string name, std::string value);
+// Fill a bitmap the document leaves to the host (a json2rc resources.bitmaps entry with
+// "width", "height" and "export": an empty bitmap, NAMED_VARIABLE image type), drawn wherever
+// the document draws it. w x h premultiplied ARGB8888 (an opaque pixel is plain 0xFFRRGGBB),
+// any size: the document's drawBitmap scales it. Taken, not copied; a later call for the same
+// name before the next frame replaces it. Not sticky: a document loaded later starts with its
+// bitmap empty, so a producer sends again when the document changes (currentName()).
+void setNamedBitmap(std::string name, int w, int h, std::vector<uint32_t> pixels);
 // Listen to a class of named variables: fn(name, value) runs when a named variable of the
 // showing document whose name matches `pattern` was changed by a touch: a click's value
 // change, or a value the document exports that follows a drag. It runs once the gesture is

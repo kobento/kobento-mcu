@@ -129,6 +129,10 @@ public:
     std::string getText(int id) override;
     void loadBitmap(int imageId, int widthAndType, int heightAndEncoding,
                     const std::vector<uint8_t>& data) override;
+    // A bitmap the host draws into (a document's empty, exported bitmap): these pixels from now
+    // on, w x h premultiplied ARGB8888, any size (the document scales it where it draws it).
+    // Taken, not copied. Between frames only: ThorVG reads the pixels while it renders.
+    bool setImagePixels(int imageId, int w, int h, std::vector<uint32_t>&& px);
     void loadPathData(int instanceId, int winding, const std::vector<float>& path) override;
     void appendPathData(int instanceId, const std::vector<float>& path) override;
     void beginDrawToBitmap(int bitmapId, int mode, int color) override;
