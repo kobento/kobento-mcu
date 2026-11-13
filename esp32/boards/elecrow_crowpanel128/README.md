@@ -55,8 +55,8 @@ protects both ends.
 ## Rotation
 
 `kRotation` in `components/board/src/board.cpp` turns the picture clockwise by 0, 90, 180 or 270
-degrees, set to 90 by default. The panel does the turning through MADCTL, so it costs nothing per
-frame, and `readTouch` turns touch coordinates to match. Checked on the device at 90. Screenshots
+degrees, set to 270 by default (it was 90 until 2026-11-12, when the knob was turned round). The panel does the turning through MADCTL, so it costs nothing per
+frame, and `readTouch` turns touch coordinates to match. Checked on the device at 90; at 270 the picture is checked, touch not yet. Screenshots
 are taken before the panel, so they stay upright.
 
 ## Not verified yet

@@ -57,7 +57,7 @@ static constexpr int kStripLines = 24;
 // turns it (MADCTL row/column swap and mirrors), so it costs nothing a frame; touch is turned
 // to match in readTouch. Screenshots (dumpFrame, rcstage capture) are taken before the panel,
 // so they stay upright.
-static constexpr int kRotation = 90;
+static constexpr int kRotation = 270;
 static_assert(kRotation == 0 || kRotation == 90 || kRotation == 180 || kRotation == 270,
               "kRotation: 0, 90, 180 or 270");
 // MADCTL: MY 0x80, MX 0x40, MV (swap rows and columns) 0x20, BGR 0x08.
