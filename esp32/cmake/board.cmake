@@ -9,6 +9,7 @@
 #   boards/<board>/sdkconfig.defaults
 #   <app>/sdkconfig.defaults
 #   boards/<board>/sdkconfig.<app>.defaults        (if present)
+#   esp32/sdkconfig.secrets                         (if present; gitignored: Wi-Fi, tokens)
 #   <app>/sdkconfig.secrets                         (if present; gitignored)
 set(ESP_RC_ROOT ${CMAKE_CURRENT_LIST_DIR}/..)
 get_filename_component(ESP_RC_ROOT ${ESP_RC_ROOT} ABSOLUTE)
@@ -33,6 +34,9 @@ set(SDKCONFIG_DEFAULTS ${ESP_RC_BASE_DEFAULTS} ${BOARD_DIR}/sdkconfig.defaults
     ${CMAKE_SOURCE_DIR}/sdkconfig.defaults)
 if(EXISTS ${BOARD_DIR}/sdkconfig.${_app}.defaults)
     list(APPEND SDKCONFIG_DEFAULTS ${BOARD_DIR}/sdkconfig.${_app}.defaults)
+endif()
+if(EXISTS ${ESP_RC_ROOT}/sdkconfig.secrets)
+    list(APPEND SDKCONFIG_DEFAULTS ${ESP_RC_ROOT}/sdkconfig.secrets)
 endif()
 if(EXISTS ${CMAKE_SOURCE_DIR}/sdkconfig.secrets)
     list(APPEND SDKCONFIG_DEFAULTS ${CMAKE_SOURCE_DIR}/sdkconfig.secrets)
