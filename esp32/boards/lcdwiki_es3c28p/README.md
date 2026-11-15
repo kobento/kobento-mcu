@@ -81,7 +81,7 @@ The shield's headphones were checked by ear on 2026-11-08 (a mic monitor app):
 
 ## Not verified
 
-- Landscape direction (MADCTL 0xA8, `kRotate180` in board.cpp flips it) and the touch
+- Landscape direction (MADCTL 0x68 now, turned 180° from LCDWIKI's 0xA8: `kRotate180` in board.cpp) and the touch
   mapping that follows it (`touch` on the console prints raw and screen coordinates).
 - Colours (INVON + BGR, as LCDWIKI's init).
 - Not driven yet: the on-board ES8311 and speaker, SD, the WS2812, battery.

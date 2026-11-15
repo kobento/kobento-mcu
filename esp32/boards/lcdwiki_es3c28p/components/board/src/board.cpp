@@ -39,9 +39,10 @@ static constexpr gpio_num_t kSclk = GPIO_NUM_12, kMosi = GPIO_NUM_11, kLcdCs = G
                             kTouchInt = GPIO_NUM_17, kBootKey = GPIO_NUM_0;
 static constexpr uint8_t kTouchAddr = 0x38;
 
-// MADCTL: MV (rows and columns swapped: landscape) + MY + BGR, LCDWIKI's landscape. Flip
+// MADCTL: MV (rows and columns swapped: landscape) + MY + BGR, LCDWIKI's landscape; turned 180°
+// (MV + MX + BGR, 0x68) for the way the board stands here (2026-11-14). Flip
 // kRotate180 if the picture is upside down for the way the board is held.
-static constexpr bool kRotate180 = false;
+static constexpr bool kRotate180 = true;
 static constexpr uint8_t kMadctl = kRotate180 ? 0x68 : 0xA8;
 
 static constexpr int kLcdHz = 40 * 1000 * 1000;
