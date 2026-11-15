@@ -7,6 +7,9 @@
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <iterator>
+#include <list>
+#include <vector>
 
 using namespace rccore;
 
@@ -255,6 +258,8 @@ struct ThorvgPaintContext::Offscreen {
     std::vector<SaveEntry> saves;
 };
 
+static tvg::Paint* nth(const std::list<tvg::Paint*>& list, int i);
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────────────────────
 
 ThorvgPaintContext::ThorvgPaintContext(RemoteContext& context, uint32_t* pixels, int w, int h)
@@ -286,6 +291,7 @@ void ThorvgPaintContext::beginFrame(const tvg::Matrix& base, uint32_t clearArgb)
     bg->fill((clearArgb >> 16) & 0xFF, (clearArgb >> 8) & 0xFF, clearArgb & 0xFF,
              clearArgb >> 24);
     mCanvas->add(bg);
+    mClear = bg;
     mMatrix = base;
 }
 
@@ -301,8 +307,137 @@ void ThorvgPaintContext::addOverlay(tvg::Paint* p) {
 
 void ThorvgPaintContext::endFrame() {
     if (mOffscreen) endDrawToBitmap();
+    // A document that starts with an opaque background over the whole frame makes the clear
+    // rect under it wasted work: a full-frame fill, 8.5 ms of a 25 ms raster at 320x240 on the
+    // ESP32-S3 (the frame is in PSRAM). Then it goes.
+    bool keep = false;
+#if !defined(ESP_PLATFORM)
+    static const bool keepClear = std::getenv("RC_KEEP_CLEAR") != nullptr;   // debug: as before, to diff
+    keep = keepClear;
+#endif
+    if (mClear && mClearOpaque && !keep && documentCoversFrame()) mCanvas->remove(mClear);
+    mClear = nullptr;
     mCanvas->draw(!mClearOpaque);
     mCanvas->sync();
+}
+
+static tvg::Paint* nth(const std::list<tvg::Paint*>& list, int i) {
+    if (i < 0 || i >= (int) list.size()) return nullptr;
+    auto it = list.begin();
+    std::advance(it, i);
+    return *it;
+}
+
+int ThorvgPaintContext::topCount() const {
+    return (int) mCanvas->paints().size();
+}
+
+int ThorvgPaintContext::childCount(int i) const {
+    tvg::Paint* p = nth(mCanvas->paints(), i);
+    return p && p->type() == tvg::Type::Scene ? (int) static_cast<tvg::Scene*>(p)->paints().size() : 0;
+}
+
+std::string ThorvgPaintContext::describe(int i, int j) const {
+    tvg::Paint* p = nth(mCanvas->paints(), i);
+    if (p && j >= 0) p = p->type() == tvg::Type::Scene ? nth(static_cast<tvg::Scene*>(p)->paints(), j) : nullptr;
+    if (!p) return "";
+    float x = 0, y = 0, w = 0, h = 0;
+    p->bounds(&x, &y, &w, &h);
+    char buf[160];
+    const char* kind = "paint";
+    std::string extra;
+    switch (p->type()) {
+        case tvg::Type::Shape: {
+            kind = "shape";
+            auto* sh = static_cast<tvg::Shape*>(p);
+            uint8_t a = 0;
+            sh->fill(nullptr, nullptr, nullptr, &a);
+            if (sh->fill()) extra += " gradient";
+            else if (a == 0) extra += " no-fill";
+            else if (a < 255) extra += " translucent";
+            if (sh->strokeWidth() > 0) {
+                snprintf(buf, sizeof buf, " stroke %.1f", sh->strokeWidth());
+                extra += buf;
+            }
+            break;
+        }
+        case tvg::Type::Scene:
+            kind = "scene";
+            snprintf(buf, sizeof buf, " (%d)", (int) static_cast<tvg::Scene*>(p)->paints().size());
+            extra += buf;
+            break;
+        case tvg::Type::Picture: kind = "picture"; break;
+        case tvg::Type::Text: kind = "text"; break;
+        default: break;
+    }
+    if (p->opacity() < 255) {
+        snprintf(buf, sizeof buf, " opacity %d", p->opacity());
+        extra += buf;
+    }
+    snprintf(buf, sizeof buf, "%s %.0fx%.0f at %.0f,%.0f", kind, w, h, x, y);
+    return buf + extra;
+}
+
+void ThorvgPaintContext::rasterOnly(int i, int j) {
+    if (mOffscreen) endDrawToBitmap();
+    std::vector<tvg::Paint*> others;
+    int k = 0;
+    for (tvg::Paint* p : mCanvas->paints())
+        if (k++ != i) others.push_back(p);
+    for (tvg::Paint* p : others) mCanvas->remove(p);
+    tvg::Paint* p = nth(mCanvas->paints(), 0);
+    if (j >= 0 && p && p->type() == tvg::Type::Scene) {
+        auto* scene = static_cast<tvg::Scene*>(p);
+        std::vector<tvg::Paint*> kids;
+        k = 0;
+        for (tvg::Paint* c : scene->paints())
+            if (k++ != j) kids.push_back(c);
+        for (tvg::Paint* c : kids) scene->remove(c);
+    }
+    mCanvas->draw(false);
+    mCanvas->sync();
+}
+
+// A shape that is an axis-aligned rectangle covering w x h in canvas space (its path: four
+// corners, two x's and two y's; its bounds: not rotated, over the frame).
+static bool rectCovers(tvg::Shape* sh, int w, int h) {
+    const tvg::PathCommand* cmds = nullptr;
+    const tvg::Point* pts = nullptr;
+    uint32_t nc = 0, np = 0;
+    if (sh->path(&cmds, &nc, &pts, &np) != tvg::Result::Success || np < 4 || np > 5 || nc < 4 || nc > 6) return false;
+    for (uint32_t k = 0; k < np; k++)
+        if ((pts[k].x != pts[0].x && pts[k].x != pts[2].x) || (pts[k].y != pts[0].y && pts[k].y != pts[2].y)) return false;
+    tvg::Point c[4];
+    if (sh->bounds(c) != tvg::Result::Success) return false;
+    for (int k = 0; k < 4; k++) {
+        const tvg::Point& q = c[k];
+        const tvg::Point& r = c[(k + 1) % 4];
+        if (std::fabs(q.x - r.x) > 0.01f && std::fabs(q.y - r.y) > 0.01f) return false;
+    }
+    float x0 = c[0].x, x1 = c[0].x, y0 = c[0].y, y1 = c[0].y;
+    for (const tvg::Point& q : c) x0 = std::min(x0, q.x), x1 = std::max(x1, q.x), y0 = std::min(y0, q.y), y1 = std::max(y1, q.y);
+    return x0 <= 0 && y0 <= 0 && x1 >= (float) w && y1 >= (float) h;
+}
+
+// The document's first paint (inside its scenes: none translucent or masked, clipped only to
+// the whole frame), when it is an opaque, solid rectangle covering the frame.
+bool ThorvgPaintContext::documentCoversFrame() const {
+    const auto& top = mCanvas->paints();
+    if (top.size() < 2 || *top.begin() != mClear) return false;
+    auto plain = [&](tvg::Paint* q) {
+        return q->opacity() == 255 && q->mask(nullptr) == tvg::MaskMethod::None &&
+               (!q->clip() || rectCovers(q->clip(), mW, mH));
+    };
+    tvg::Paint* p = nth(top, 1);
+    for (int depth = 0; p && p->type() == tvg::Type::Scene; depth++) {
+        if (depth > 8 || !plain(p)) return false;
+        p = nth(static_cast<tvg::Scene*>(p)->paints(), 0);
+    }
+    if (!p || p->type() != tvg::Type::Shape || !plain(p)) return false;
+    auto* sh = static_cast<tvg::Shape*>(p);
+    uint8_t a = 0;
+    if (sh->fill() || sh->fill(nullptr, nullptr, nullptr, &a) != tvg::Result::Success || a != 255) return false;
+    return rectCovers(sh, mW, mH);
 }
 
 void ThorvgPaintContext::reset() {

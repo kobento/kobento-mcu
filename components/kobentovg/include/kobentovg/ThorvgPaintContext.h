@@ -70,6 +70,15 @@ public:
     // Number of tvg paints the last frame produced; a cheap complexity gauge.
     int paintCount() const { return mPaintCount; }
 
+    // Profiling, between the document's paint and endFrame() (rcstage::profilePaints): the
+    // paints at the canvas's top level, what one is (type, bounds, fill), and a raster of that
+    // one alone, the others removed (the frame is spent then: begin another).
+    // Top-level paint i, or child j of it when it is a scene (j -1: the paint itself).
+    int topCount() const;
+    int childCount(int i) const;   // 0 unless a scene
+    std::string describe(int i, int j = -1) const;
+    void rasterOnly(int i, int j = -1);
+
 #if !defined(ESP_PLATFORM) || CONFIG_KOBENTOVG_3D
     rccore::Paint3D* asPaint3D() override { return &m3D; }
 #else
@@ -255,6 +264,8 @@ private:
     std::vector<PaintState> mPaintStack;
     int mPaintCount = 0;
     bool mClearOpaque = false;
+    tvg::Paint* mClear = nullptr;   // this frame's clear rect (the canvas owns it)
+    bool documentCoversFrame() const;
 
     std::unordered_map<int, std::string> mTexts;
     std::unordered_map<int, PathData> mPaths;

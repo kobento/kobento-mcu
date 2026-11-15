@@ -1,5 +1,6 @@
 #include "rcstage/stage.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -262,6 +263,7 @@ static uint32_t* sBufs[2];
 static int sBack = 0;
 static bool sDirty = true;
 static bool sStatsNow = false;
+static std::atomic<bool> sProfileNow{false};
 // When the document wants its next frame (esp_timer us; INT64_MAX: never), and frames drawn.
 static std::atomic<int64_t> sNextAtUs{0};
 static std::atomic<bool> sContinuous{false};   // the last frame asked for the next at once
@@ -516,6 +518,61 @@ void setRenderDiv(int div) {
 }
 
 void requestStats() { sStatsNow = true; }
+void profilePaints() { sProfileNow = true; }
+
+// profilePaints(): player task, before a normal frame. `base` as the frame's.
+static void runPaintProfile(const tvg::Matrix& base) {
+    auto& pc = *sPlayer.pc;
+    auto build = [&] {
+        pc.beginFrame(base, sPlayer.fit ? 0xFF000000 : 0xFFFFFFFF);
+        try {
+            sPlayer.doc->paint(*sPlayer.ctx, kThemeLight);
+        } catch (const std::exception&) {
+        }
+        addBanner(pc, sPlayer.rw, sPlayer.rh);
+    };
+    build();
+    // each top-level paint, or each child of a top-level scene (where a document's paints are)
+    // (-1: nothing at all, the fixed cost; a scene with none of its children: its own)
+    std::vector<std::pair<int, int>> items{{-1, -1}};
+    const int n = pc.topCount();
+    for (int i = 0; i < n; i++) {
+        const int kids = pc.childCount(i);
+        if (kids > 1) {
+            items.push_back({i, kids});
+            for (int j = 0; j < kids; j++) items.push_back({i, j});
+        } else {
+            items.push_back({i, -1});
+        }
+    }
+    struct Cost { int64_t us; int i, j; std::string what; };
+    std::vector<Cost> costs;
+    int64_t all = 0;
+    for (auto [i, j] : items) {
+        build();
+        std::string what = i < 0 ? "nothing (the fixed cost)"
+                           : j >= pc.childCount(i) && j > 0 ? "the scene, empty: " + pc.describe(i) : pc.describe(i, j);
+        const int64_t t0 = esp_timer_get_time();
+        pc.rasterOnly(i, j);
+        const int64_t us = esp_timer_get_time() - t0;
+        costs.push_back({us, i, j, what});
+        all += us;
+        vTaskDelay(1);   // let IDLE run (watchdog)
+    }
+    build();   // the whole frame, for comparison
+    int64_t t0 = esp_timer_get_time();
+    pc.endFrame();
+    const int64_t whole = esp_timer_get_time() - t0;
+    std::sort(costs.begin(), costs.end(), [](const Cost& a, const Cost& b) { return a.us > b.us; });
+    ESP_LOGI(TAG, "paints: %d timed, %.1f ms alone in all, the whole frame %.1f ms; the costliest:", (int) costs.size(),
+             all / 1000.0f, whole / 1000.0f);
+    for (const Cost& c : costs)
+        if (c.i < 0 || (c.j > 0 && c.j >= pc.childCount(c.i)))
+            ESP_LOGI(TAG, "  %5.2f ms  %s", c.us / 1000.0f, c.what.c_str());
+    for (int k = 0; k < (int) costs.size() && k < 12; k++)
+        ESP_LOGI(TAG, "  %d.%-3d %5.2f ms %4.1f%%  %s", costs[k].i, costs[k].j, costs[k].us / 1000.0f,
+                 100.0f * costs[k].us / (all + 1), costs[k].what.c_str());
+}
 
 const std::vector<uint8_t>& currentBytes() { return *sPlayer.bytes; }
 
@@ -858,6 +915,7 @@ static void task(void*) {
         const float k = kDensity / sRenderDiv;
         const float ks = k * sPlayer.scale;
         const tvg::Matrix base{ks, 0, k * sPlayer.ox, 0, ks, k * sPlayer.oy, 0, 0, 1};
+        if (sProfileNow.exchange(false)) runPaintProfile(base);
         int64_t t0 = esp_timer_get_time();
         // A fitted document sits on black bars; anything else covers the screen.
         sPlayer.pc->beginFrame(base, sPlayer.fit ? 0xFF000000 : 0xFFFFFFFF);

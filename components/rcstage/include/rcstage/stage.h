@@ -147,6 +147,10 @@ bool load(const uint8_t* data, size_t size, const char* name, bool fit = false);
 void setRenderDiv(int div);    // 1 = native 720x1280, 2 = 360x640 upscaled by the PPA
 void bench();                  // raw ThorVG throughput, printed
 void requestStats();           // log timing on the next frame
+// Log what each paint of the next frame costs to raster: the frame is built once per paint and
+// rastered with only that paint (~a second for 50 paints), then the costliest, with what they
+// are. A one-off, to find what makes a document slow.
+void profilePaints();
 std::vector<std::string> namedVariables();   // "name:type" of the current document
 // The current document's named variable `name` now, as namedValues gives it (a number, a
 // "#AARRGGBB" colour, a text). false when the document doesn't declare it.
