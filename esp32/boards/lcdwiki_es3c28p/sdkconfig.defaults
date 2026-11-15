@@ -16,6 +16,11 @@ CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 # CONFIG_SPIRAM_IGNORE_NOTFOUND is not set
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# Code and constants run from PSRAM, copied there at boot (~3 MB of the 8): the octal PSRAM
+# fills a cache miss faster than the quad flash, and both cores' code misses a lot (the
+# engine and ThorVG on one, the audio and noise removal on the other, one 32 KB cache).
+# Writing flash (an update) no longer stalls them either.
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
 
 # ── Console: USB Serial/JTAG (the USB-C port) ──
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
