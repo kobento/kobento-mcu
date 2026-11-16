@@ -192,14 +192,30 @@ int micRead(int16_t* out, int frames, int timeoutMs) {
     return n;
 }
 
+static std::atomic<int> sMonitor{0};   // the mic monitor's percent (micMonitor)
+static int sMicGainCode = 3;   // CHIP_MIC_CTRL's gain bits: +40 dB, as audioInput(true) sets it
+
 void micGain(int db) {
-    const int code = db >= 40 ? 3 : db >= 30 ? 2 : db >= 20 ? 1 : 0;
-    reg(CHIP_MIC_CTRL, (uint16_t) (0x0170 | code));
+    sMicGainCode = db >= 40 ? 3 : db >= 30 ? 2 : db >= 20 ? 1 : 0;
+    reg(CHIP_MIC_CTRL, (uint16_t) (0x0170 | sMicGainCode));
+}
+
+void micInput(bool line) {
+    if (!sCodec) return;
+    if (line) {
+        reg(CHIP_ANA_ADC_CTRL, 0x0000);   // line in at 0 dB (0x55 was +7.5: a preamp's line out needs none)
+        sAnaCtrl |= (1 << 2);
+    } else {
+        reg(CHIP_MIC_CTRL, (uint16_t) (0x0170 | sMicGainCode));
+        reg(CHIP_ANA_ADC_CTRL, 0x0088);   // ADC +12 dB, as audioInput(true)
+        sAnaCtrl &= ~(1 << 2);
+    }
+    // the headphones' mute bit (micMonitor) stays as it is
+    reg(CHIP_ANA_CTRL, sAnaCtrl | (sMonitor.load() == 0 ? 0x10 : 0));
 }
 
 // ── The mic monitor: what the app captured, back out of the headphones ──
 
-static std::atomic<int> sMonitor{0};
 
 void micMonitor(int percent) {
     if (!sCodec) return;

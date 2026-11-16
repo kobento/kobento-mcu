@@ -12,8 +12,12 @@ bool micReady();
 // Read `frames` mono 16-bit samples (the left slot) at kMicRate, blocking up to timeoutMs.
 // Returns the frames read.
 int micRead(int16_t* out, int frames, int timeoutMs);
-// The analog mic preamp: 0, 20, 30 or 40 dB (nearest lower step).
+// The analog mic preamp: 0, 20, 30 or 40 dB (nearest lower step). Kept while on line in.
 void micGain(int db);
+// The input: the mic (its preamp, micGain) or the shield's LINE IN pads (left), for a line-level
+// source such as an external preamp: the ADC at 0 dB, full scale about 1 V RMS (SGTL5000
+// datasheet's typical; not measured here), so the source's own gain sets the level.
+void micInput(bool line);
 // The monitor: the headphones on the shield's jack play what micMonitorWrite gets (the app's
 // processed capture), ~25 ms later. 0 is off (headphones muted), 1..100 is -40..0 dB.
 void micMonitor(int percent);
