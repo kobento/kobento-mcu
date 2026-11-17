@@ -272,6 +272,21 @@ private:
     std::unordered_map<int, Image> mImages;
     std::unordered_map<int, size_t> mImageSourceHash;
     std::unordered_map<uint64_t, float> mWidthCache;
+    // Text drawn once to a bitmap and blitted after (drawText): a line's glyph outlines cost
+    // 1-4 ms to build and raster on the ESP32-S3, its picture a fraction of that. Keyed by the
+    // text, font, size on screen, colour and style; kept while used, up to kTextCacheBytes.
+    struct TextImage {
+        std::vector<uint32_t> px;   // premultiplied ARGB, w x h
+        int w = 0, h = 0, pad = 0;  // pad: the margin round the text box (overhangs, italics)
+        uint32_t used = 0;          // the last frame (mFrameNo) it was drawn in
+    };
+    std::unordered_map<uint64_t, TextImage> mTextCache;
+    std::unordered_map<uint64_t, uint32_t> mTextSeen;   // the frame a text was last drawn uncached
+    std::unique_ptr<tvg::SwCanvas> mTextCanvas;          // draws a TextImage, retargeted for each
+    size_t mTextCacheBytes = 0;
+    uint32_t mFrameNo = 0;
+    bool drawCachedText(const std::string& utf8, const char* font, float x, float boxTop, float size,
+                        float ascent, float descent, uint32_t color);
     tvg::Text* mMeasure = nullptr;
     const char* mMeasureFont = nullptr;
     float mMeasureSize = -1;

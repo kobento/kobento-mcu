@@ -828,7 +828,7 @@ static void task(void*) {
     float downX = 0, downY = 0, lastX = 0, lastY = 0;
     int64_t downAt = 0;
     int frames = 0;
-    int64_t tPresent = 0, statsAt = esp_timer_get_time();
+    int64_t tPresent = 0, tTick = 0, statsAt = esp_timer_get_time();   // tTick: the app's hook, per frame
     // Render only when input arrived, the document changed, or the engine's own schedule
     // (getRepaintDelay / needsRepaint) says a frame is due. A static document costs nothing.
     int64_t nextAt = 0;
@@ -895,7 +895,11 @@ static void task(void*) {
             }
         }
 
-        if (sHooks.tick) sHooks.tick();
+        if (sHooks.tick) {
+            const int64_t t = esp_timer_get_time();
+            sHooks.tick();
+            tTick += esp_timer_get_time() - t;
+        }
         drainInbox();
         if (gestureUntil && now >= gestureUntil) {
             gestureUntil = 0;
@@ -942,12 +946,13 @@ static void task(void*) {
         sFrames++;
 
         if (sStatsNow || now - statsAt > 5000000) {
-            ESP_LOGI(TAG, "%dx%d %.1f fps | doc %.1f + raster %.1f ms | present wait %.1f ms | %d tvg paints | heap int %u psram %u",
+            ESP_LOGI(TAG, "%dx%d %.1f fps | doc %.1f + raster %.1f ms | present wait %.1f ms | app %.1f ms | %d tvg paints | heap int %u psram %u",
                      sPlayer.rw, sPlayer.rh, frames * 1e6f / (now - statsAt + 1),
                      sPlayer.tDoc / 1000.0f / frames, sPlayer.tRaster / 1000.0f / frames, tPresent / 1000.0f / frames,
+                     tTick / 1000.0f / frames,
                      sPlayer.pc->paintCount(), (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                      (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-            frames = 0; tPresent = 0; statsAt = now; sStatsNow = false;
+            frames = 0; tPresent = 0; tTick = 0; statsAt = now; sStatsNow = false;
             sPlayer.tDoc = sPlayer.tRaster = 0;
         }
         vTaskDelay(1);   // let IDLE run (watchdog)

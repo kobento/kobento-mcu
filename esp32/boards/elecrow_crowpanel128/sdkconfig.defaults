@@ -16,6 +16,13 @@ CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 # CONFIG_SPIRAM_IGNORE_NOTFOUND is not set
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# Code and constants run from PSRAM, copied there at boot (as on lcdwiki_es3c28p): the octal
+# PSRAM fills a cache miss faster than the quad flash, and the engine and ThorVG miss a lot.
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+# Bigger caches (the default 16 / 32 KB): the frame is drawn in PSRAM and the code is large.
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
 
 # ── Console: USB Serial/JTAG (the board's only USB port) ──
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

@@ -90,10 +90,11 @@ int main(int argc, char** argv) {
     if (argc < 3) {
         std::cerr << "usage: rc2png in.rc out.png [--fit W H] [--native] [--theme light|dark]"
                      " [--bg AARRGGBB] [--density D] [--frames N] [--anim SEC] [--time MS]"
-                     " [--bench N] [--sys ID=VALUE]... [--named NAME=VALUE]... [--bitmap NAME=W,H,FILE]... [--click X,Y]... [--drag X0,Y0,X1,Y1]... [--print PATTERN]...\n";
+                     " [--bench N] [--bench-var NAME] [--sys ID=VALUE]... [--named NAME=VALUE]... [--bitmap NAME=W,H,FILE]... [--click X,Y]... [--drag X0,Y0,X1,Y1]... [--print PATTERN]...\n";
         return 1;
     }
     int fitW = 0, fitH = 0, frames = 1, bench = 0;
+    std::string benchVar;   // --bench-var: a named float changed every bench frame (forces the layout pass)
     float anim = -1;
     int64_t timeMs = -1;
     bool native = false;
@@ -117,6 +118,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--anim") && i + 1 < argc) anim = (float) atof(argv[++i]);
         else if (!strcmp(argv[i], "--time") && i + 1 < argc) timeMs = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--bench") && i + 1 < argc) bench = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--bench-var") && i + 1 < argc) benchVar = argv[++i];
         else if (!strcmp(argv[i], "--native")) native = true;
         else if (!strcmp(argv[i], "--click") && i + 1 < argc) {
             Gesture g{true, {}};
@@ -325,7 +327,10 @@ int main(int argc, char** argv) {
 
     if (bench > 0) {
         auto t0 = std::chrono::steady_clock::now();
-        for (int i = 0; i < bench; i++) frame();
+        for (int i = 0; i < bench; i++) {
+            if (!benchVar.empty()) setNamed(benchVar, std::to_string(-30 + (i % 7)));   // as a level does
+            frame();
+        }
         double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         std::printf("bench: %.2f ms/frame (%d paints)\n", ms / bench, pc.paintCount());
     }

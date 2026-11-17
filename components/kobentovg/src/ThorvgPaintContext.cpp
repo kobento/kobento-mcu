@@ -273,8 +273,28 @@ ThorvgPaintContext::~ThorvgPaintContext() {
     if (mMeasure) tvg::Paint::rel(mMeasure);
 }
 
+// The text cache's budget (TextImage): a few screens' worth of lines.
+static constexpr size_t kTextCacheBytes = 512 * 1024;
+
 void ThorvgPaintContext::beginFrame(const tvg::Matrix& base, uint32_t clearArgb) {
     mCanvas->remove();
+    // Last frame's pictures are gone with it: cached text may go now. Over budget, what wasn't
+    // drawn for a second or so (texts that change, numbers); still over, the lot.
+    mFrameNo++;
+    if (mTextCacheBytes > kTextCacheBytes) {
+        for (auto it = mTextCache.begin(); it != mTextCache.end();) {
+            if (mFrameNo - it->second.used > 30) {
+                mTextCacheBytes -= it->second.px.size() * 4;
+                it = mTextCache.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        if (mTextCacheBytes > kTextCacheBytes) {
+            mTextCache.clear();
+            mTextCacheBytes = 0;
+        }
+    }
     mContainers.clear();
     mSaves.clear();
     mPaintCount = 0;
@@ -1004,15 +1024,18 @@ void ThorvgPaintContext::drawText(const std::string& utf8, float x, float baseli
           mPaint.color, mPaint.gradient.type);
     float ascent, descent;
     textMetrics(size, ascent, descent);
+    uint32_t c = paintColor();
+    const int gt = mPaint.gradient.type;
+    bool gradient = gt == PaintBundle::LINEAR_GRADIENT || gt == PaintBundle::RADIAL_GRADIENT ||
+                    gt == PaintBundle::SWEEP_GRADIENT;
+    if (mPaint.style != PaintBundle::STYLE_STROKE && !gradient &&
+        drawCachedText(utf8, font, x, baselineY - ascent, size, ascent, descent, c))
+        return;
     auto t = tvg::Text::gen();
     t->font(font);
     t->size(size * kPxToTvgSize);
     t->text(utf8.c_str());
     if (mPaint.italic) t->italic();
-    uint32_t c = paintColor();
-    const int gt = mPaint.gradient.type;
-    bool gradient = gt == PaintBundle::LINEAR_GRADIENT || gt == PaintBundle::RADIAL_GRADIENT ||
-                    gt == PaintBundle::SWEEP_GRADIENT;
     if (mPaint.style == PaintBundle::STYLE_STROKE)
         t->outline(mPaint.strokeWidth > 0 ? mPaint.strokeWidth : 1, (c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
     else if (gradient) {
@@ -1041,6 +1064,78 @@ void ThorvgPaintContext::drawText(const std::string& utf8, float x, float baseli
     mMatrix = mul(mMatrix, translateM(x, baselineY - ascent));
     push(t);
     mMatrix = saved;
+}
+
+// A filled text with its box's top-left at (x, boxTop), from the cache (TextImage): drawn into a
+// bitmap at its size on screen the first time, a picture of that after. Only where the current
+// transform is a translation and a uniform scale (no rotation: a glyph's antialiasing is baked
+// in), and at a whole pixel (the box snaps to it, under half a pixel off). False: not cached,
+// the caller draws the text itself.
+bool ThorvgPaintContext::drawCachedText(const std::string& utf8, const char* font, float x, float boxTop,
+                                        float size, float ascent, float descent, uint32_t c) {
+    const tvg::Matrix& m = mMatrix;
+    if (m.e12 != 0 || m.e21 != 0 || m.e31 != 0 || m.e32 != 0 || !(m.e11 > 0) || std::fabs(m.e11 - m.e22) > 1e-4f)
+        return false;
+    const float k = m.e11, px = size * k;   // the size on screen
+    if (px < 4 || px > 160) return false;
+    const float adv = advanceOf(utf8, size) * k;
+    const int pad = (int) std::ceil(px * 0.25f) + 2;
+    const int w = (int) std::ceil(adv) + 2 * pad, h = (int) std::ceil((ascent + descent) * k) + 2 * pad;
+    if (w <= 2 * pad || w > 2048 || h > 512) return false;
+
+    uint64_t key = std::hash<std::string>{}(utf8);
+    uint32_t pxBits;
+    std::memcpy(&pxBits, &px, 4);
+    key = (key * 1099511628211ull) ^ pxBits;
+    key = (key * 1099511628211ull) ^ (uint64_t) (uintptr_t) font;
+    key = (key * 1099511628211ull) ^ (c & 0xFFFFFF) ^ ((uint64_t) mPaint.italic << 24);
+    auto it = mTextCache.find(key);
+    if (it == mTextCache.end()) {
+        // Only a text that stays: drawn in the frame before too. One that changes every frame
+        // (a level, a time) is drawn as it is, each time; a bitmap a frame would cost more.
+        auto seen = mTextSeen.find(key);
+        if (seen == mTextSeen.end() || seen->second + 1 != mFrameNo) {
+            if (mTextSeen.size() >= 4096) mTextSeen.clear();
+            mTextSeen[key] = mFrameNo;
+            return false;
+        }
+        mTextSeen.erase(seen);
+        TextImage img;
+        img.w = w, img.h = h, img.pad = pad;
+        img.px.assign((size_t) w * h, 0u);
+        if (!mTextCanvas) mTextCanvas.reset(tvg::SwCanvas::gen());
+        tvg::SwCanvas* canvas = mTextCanvas.get();
+        if (!canvas || canvas->target(img.px.data(), w, w, h, tvg::ColorSpace::ARGB8888) != tvg::Result::Success)
+            return false;
+        auto t = tvg::Text::gen();
+        t->font(font);
+        t->size(px * kPxToTvgSize);
+        t->text(utf8.c_str());
+        if (mPaint.italic) t->italic();
+        t->fill((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+        t->translate((float) pad, (float) pad);
+        canvas->add(t);
+        canvas->draw(true);
+        canvas->sync();
+        canvas->remove();   // the text goes; the canvas stays for the next
+        mTextCacheBytes += img.px.size() * 4;
+        it = mTextCache.emplace(key, std::move(img)).first;
+    }
+    TextImage& img = it->second;
+    img.used = mFrameNo;
+    auto pic = tvg::Picture::gen();
+    // copy=false: the pixels stay in the cache until beginFrame, after this frame's draw
+    if (pic->load(img.px.data(), img.w, img.h, tvg::ColorSpace::ARGB8888, false) != tvg::Result::Success) {
+        tvg::Paint::rel(pic);
+        return false;
+    }
+    if ((c >> 24) != 255) pic->opacity(c >> 24);
+    const float dx = m.e11 * x + m.e13 - img.pad, dy = m.e22 * boxTop + m.e23 - img.pad;
+    tvg::Matrix saved = mMatrix;
+    mMatrix = translateM(std::round(dx), std::round(dy));
+    push(pic);
+    mMatrix = saved;
+    return true;
 }
 
 void ThorvgPaintContext::drawTextRun(int textId, int start, int end, int, int, float x, float y,
