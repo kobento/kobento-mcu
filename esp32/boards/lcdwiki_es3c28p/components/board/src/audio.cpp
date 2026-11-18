@@ -261,6 +261,16 @@ void micMonitorWrite(const int16_t* mono, int frames) {
 
 // ── Tones: a task plays the latest request; a newer one replaces it ──
 
+// Tones and playback on the headphones too (out hp|both), unless the monitor plays there: the
+// capture task then writes a block every 5 ms and holds the channel while it waits for room, at
+// a higher priority, so a second writer never got the channel and waited forever, and the
+// speaker after it never played. Never waits longer than a block.
+static void headphonesWrite(const int16_t* stereo, int frames) {
+    if (!sCodec || !sOutHp || sMonitor.load() != 0) return;
+    size_t written = 0;
+    i2s_channel_write(sTx, stereo, (size_t) frames * 4, &written, 10);
+}
+
 struct Tone { int hz, ms; };
 static QueueHandle_t sTones;
 
@@ -285,10 +295,7 @@ static void toneTask(void*) {
                 if (phase > 2 * M_PI) phase -= 2 * M_PI;
                 buf[2 * i] = buf[2 * i + 1] = s;
             }
-            if (sCodec && sOutHp) {
-                size_t written = 0;
-                i2s_channel_write(sTx, buf, n * 4, &written, portMAX_DELAY);
-            }
+            headphonesWrite(buf, n);
             if (sOutSpk) speakerWrite(buf, n);
             left -= n;
         }
@@ -419,10 +426,7 @@ static void playRecording() {
     for (int i = 0; i < sRecLen; i += 240) {
         const int n = std::min(240, sRecLen - i);
         for (int j = 0; j < n; j++) buf[2 * j] = buf[2 * j + 1] = sRec[i + j];
-        if (sCodec && sOutHp) {
-            size_t written = 0;
-            i2s_channel_write(sTx, buf, n * 4, &written, portMAX_DELAY);
-        }
+        headphonesWrite(buf, n);
         if (sOutSpk) speakerWrite(buf, n);
     }
 }
