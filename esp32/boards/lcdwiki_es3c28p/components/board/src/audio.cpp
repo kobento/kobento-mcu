@@ -375,39 +375,51 @@ static bool record(float seconds) {
     return true;
 }
 
-// "sweep": an exponential sine sweep (Farina) on the speaker alone, while record() takes it in.
-// Starts after 0.2 s of the recording; the host deconvolves it (the room's impulse response).
-static constexpr float kSweepF1 = 50, kSweepF2 = 20000, kSweepLead = 0.2f;
-static float sSweepSecs = 2;
-static int16_t* sSweep;   // mono, computed before it plays: per sample in real time (sin and exp
-static int sSweepLen;     // of doubles, in software on this chip) it fell behind, with gaps
-
-static bool sweepPrepare() {
-    const int total = (int) (sSweepSecs * kRate), fade = kRate / 100;   // 10 ms fades
-    if (!sSweep || sSweepLen < total) {
-        heap_caps_free(sSweep);
-        sSweep = (int16_t*) heap_caps_malloc((size_t) total * 2, MALLOC_CAP_SPIRAM);
-        if (!sSweep) { sSweepLen = 0; return false; }
-    }
-    sSweepLen = total;
-    const double L = sSweepSecs / std::log(kSweepF2 / kSweepF1);
-    for (int k = 0; k < total; k++) {
-        const double t = (double) k / kRate;
-        const float env = std::fmin(1.0f, std::fmin((float) k / fade, (float) (total - k) / fade));
-        sSweep[k] = (int16_t) (std::sin(std::fmod(2 * M_PI * kSweepF1 * L * (std::exp(t / L) - 1), 2 * M_PI)) * 9000 * env);
-    }
-    return true;
-}
+// ── board/mic.h: speakerSweep, an exponential sine sweep (Farina) on the speaker alone ──
+// Computed into PSRAM before it plays (computed while playing, with sin and exp in software
+// doubles on this chip, it fell behind and played with gaps), freed once played.
+static int16_t* sSweep;
+static int sSweepLen, sSweepDelayMs;
+static std::atomic<bool> sSweeping{false};
 
 static void sweepTask(void*) {
-    vTaskDelay(pdMS_TO_TICKS((int) (kSweepLead * 1000)));
+    vTaskDelay(pdMS_TO_TICKS(sSweepDelayMs));
     static int16_t buf[2 * 240];
     for (int k0 = 0; k0 < sSweepLen; k0 += 240) {
         const int n = std::min(240, sSweepLen - k0);
         for (int i = 0; i < n; i++) buf[2 * i] = buf[2 * i + 1] = sSweep[k0 + i];
         speakerWrite(buf, n);
     }
+    heap_caps_free(sSweep);
+    sSweep = nullptr;
+    sSweeping = false;
     vTaskDelete(nullptr);
+}
+
+bool speakerSweep(float seconds, float f1Hz, float f2Hz, int delayMs) {
+    if (!speakerReady() || seconds <= 0 || f1Hz <= 0 || f2Hz <= f1Hz || sSweeping.exchange(true)) return false;
+    const int total = (int) (std::fmin(seconds, 10) * kRate), fade = kRate / 100;   // 10 ms fades
+    sSweep = (int16_t*) heap_caps_malloc((size_t) total * 2, MALLOC_CAP_SPIRAM);
+    if (!sSweep) { sSweeping = false; return false; }
+    // the frequency grows by the same factor each sample: f1 * (f2 / f1)^(t / seconds)
+    const double grow = std::exp(std::log((double) f2Hz / f1Hz) / total);
+    double w = 2 * M_PI * f1Hz / kRate, phase = 0;
+    for (int k = 0; k < total; k++) {
+        const float env = std::fmin(1.0f, std::fmin((float) k / fade, (float) (total - k) / fade));
+        sSweep[k] = (int16_t) (std::sin((float) phase) * 9000 * env);
+        phase += w;
+        if (phase > 2 * M_PI) phase -= 2 * M_PI;
+        w *= grow;
+    }
+    sSweepLen = total;
+    sSweepDelayMs = std::max(0, delayMs);
+    if (xTaskCreatePinnedToCore(sweepTask, "sweep", 3072, nullptr, 5, nullptr, 0) != pdPASS) {
+        heap_caps_free(sSweep);
+        sSweep = nullptr;
+        sSweeping = false;
+        return false;
+    }
+    return true;
 }
 
 // Power of one frequency in x (Goertzel), as an amplitude 0..1 of full scale.
@@ -542,16 +554,11 @@ bool audioConsole(const std::string& line) {
     if (!line.compare(0, 5, "sweep")) {   // "sweep [seconds]": the room's response (tools: sweep.py)
         float sec = 2;
         sscanf(line.c_str() + 5, "%f", &sec);
-        sSweepSecs = std::fmax(0.5f, std::fmin(5, sec));
+        sec = std::fmax(0.5f, std::fmin(5, sec));
         if (!sCodec || !speakerReady()) { printf("sweep: needs the shield and the speaker\n"); return true; }
-        if (!sweepPrepare()) { printf("sweep: no memory\n"); return true; }
-        if (xTaskCreatePinnedToCore(sweepTask, "sweep", 3072, nullptr, 5, nullptr, 0) != pdPASS) {
-            printf("sweep: no task\n");
-            return true;
-        }
-        if (!record(kSweepLead + sSweepSecs + 1.0f)) { printf("sweep: recording failed\n"); return true; }
-        printf("sweep: %.1f s, %g..%g Hz, starts at %.1f s; recorded %.2f s\n", sSweepSecs, kSweepF1,
-               kSweepF2, kSweepLead, (float) sRecLen / kRate);
+        if (!speakerSweep(sec, 50, 20000, 200)) { printf("sweep: busy, or no memory\n"); return true; }
+        if (!record(sec + 1.2f)) { printf("sweep: recording failed\n"); return true; }
+        printf("sweep: %.1f s, 50..20000 Hz, starts at about 0.2 s; recorded %.2f s\n", sec, (float) sRecLen / kRate);
         analyse(sRec, sRecLen);
         return true;
     }

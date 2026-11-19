@@ -22,6 +22,11 @@ void micInput(bool line);
 // processed capture), ~25 ms later. 0 is off (headphones muted), 1..100 is -40..0 dB.
 void micMonitor(int percent);
 void micMonitorWrite(const int16_t* mono, int frames);
+// An exponential sine sweep from f1Hz to f2Hz over `seconds` on the board's speaker (not the
+// headphones), at -11 dBFS, starting delayMs from now; returns at once. With the mic recording
+// it, the host or the app deconvolves the room's impulse response (its echo). False with no
+// speaker, no memory, or a sweep still playing.
+bool speakerSweep(float seconds, float f1Hz, float f2Hz, int delayMs = 0);
 // Tests: the I2S counters (output buffers played with nothing new, input buffers lost,
 // monitor writes that did not fit), and the codec looping its I2S input back to its output.
 void micAudioCounts(int* txStarved, int* rxLost, int* txShort);
