@@ -168,8 +168,17 @@ void micWatchRight(bool on, int* nonzero, int* maxAbs) {
     *maxAbs = sRightMax;
 }
 
+// While the console records (record: rec, loop, sweep), apps get silence: two readers of one
+// I2S channel would each get every other block, and the recording would have gaps
+static std::atomic<bool> sRecHold{false};
+
 int micRead(int16_t* out, int frames, int timeoutMs) {
     if (!sCodec) return 0;
+    if (sRecHold) {
+        vTaskDelay(pdMS_TO_TICKS(std::max(1, frames * 1000 / kRate)));
+        memset(out, 0, (size_t) frames * 2);
+        return frames;
+    }
     static int16_t buf[2 * 240];
     int n = 0;
     while (n < frames) {
@@ -353,14 +362,52 @@ static bool record(float seconds) {
     }
     static int16_t buf[2 * 240];
     size_t got = 0;
+    sRecHold = true;
+    vTaskDelay(pdMS_TO_TICKS(20));   // the app's read in progress ends
     for (int i = 0; i < 8; i++) i2s_channel_read(sRx, buf, sizeof buf, &got, 50);   // stale DMA
     int n = 0;
     while (n < want) {
-        if (i2s_channel_read(sRx, buf, sizeof buf, &got, 200) != ESP_OK) return false;
+        if (i2s_channel_read(sRx, buf, sizeof buf, &got, 200) != ESP_OK) { sRecHold = false; return false; }
         for (size_t i = 0; i + 1 < got / 2 && n < want; i += 2) sRec[n++] = buf[i];
     }
+    sRecHold = false;
     sRecLen = want;
     return true;
+}
+
+// "sweep": an exponential sine sweep (Farina) on the speaker alone, while record() takes it in.
+// Starts after 0.2 s of the recording; the host deconvolves it (the room's impulse response).
+static constexpr float kSweepF1 = 50, kSweepF2 = 20000, kSweepLead = 0.2f;
+static float sSweepSecs = 2;
+static int16_t* sSweep;   // mono, computed before it plays: per sample in real time (sin and exp
+static int sSweepLen;     // of doubles, in software on this chip) it fell behind, with gaps
+
+static bool sweepPrepare() {
+    const int total = (int) (sSweepSecs * kRate), fade = kRate / 100;   // 10 ms fades
+    if (!sSweep || sSweepLen < total) {
+        heap_caps_free(sSweep);
+        sSweep = (int16_t*) heap_caps_malloc((size_t) total * 2, MALLOC_CAP_SPIRAM);
+        if (!sSweep) { sSweepLen = 0; return false; }
+    }
+    sSweepLen = total;
+    const double L = sSweepSecs / std::log(kSweepF2 / kSweepF1);
+    for (int k = 0; k < total; k++) {
+        const double t = (double) k / kRate;
+        const float env = std::fmin(1.0f, std::fmin((float) k / fade, (float) (total - k) / fade));
+        sSweep[k] = (int16_t) (std::sin(std::fmod(2 * M_PI * kSweepF1 * L * (std::exp(t / L) - 1), 2 * M_PI)) * 9000 * env);
+    }
+    return true;
+}
+
+static void sweepTask(void*) {
+    vTaskDelay(pdMS_TO_TICKS((int) (kSweepLead * 1000)));
+    static int16_t buf[2 * 240];
+    for (int k0 = 0; k0 < sSweepLen; k0 += 240) {
+        const int n = std::min(240, sSweepLen - k0);
+        for (int i = 0; i < n; i++) buf[2 * i] = buf[2 * i + 1] = sSweep[k0 + i];
+        speakerWrite(buf, n);
+    }
+    vTaskDelete(nullptr);
 }
 
 // Power of one frequency in x (Goertzel), as an amplitude 0..1 of full scale.
@@ -490,6 +537,22 @@ bool audioConsole(const std::string& line) {
         printf("loop: the tone is %.1f dB above silence: %s\n", db(on) - db(quietAt),
                db(on) - db(quietAt) > 20 ? "the mic hears the speaker" : "weak or not heard");
         vTaskDelay(pdMS_TO_TICKS(600));
+        return true;
+    }
+    if (!line.compare(0, 5, "sweep")) {   // "sweep [seconds]": the room's response (tools: sweep.py)
+        float sec = 2;
+        sscanf(line.c_str() + 5, "%f", &sec);
+        sSweepSecs = std::fmax(0.5f, std::fmin(5, sec));
+        if (!sCodec || !speakerReady()) { printf("sweep: needs the shield and the speaker\n"); return true; }
+        if (!sweepPrepare()) { printf("sweep: no memory\n"); return true; }
+        if (xTaskCreatePinnedToCore(sweepTask, "sweep", 3072, nullptr, 5, nullptr, 0) != pdPASS) {
+            printf("sweep: no task\n");
+            return true;
+        }
+        if (!record(kSweepLead + sSweepSecs + 1.0f)) { printf("sweep: recording failed\n"); return true; }
+        printf("sweep: %.1f s, %g..%g Hz, starts at %.1f s; recorded %.2f s\n", sSweepSecs, kSweepF1,
+               kSweepF2, kSweepLead, (float) sRecLen / kRate);
+        analyse(sRec, sRecLen);
         return true;
     }
     if (!line.compare(0, 3, "out")) {   // "out hp|spk|both": where tones and playback go
