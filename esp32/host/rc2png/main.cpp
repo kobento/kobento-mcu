@@ -362,6 +362,11 @@ int main(int argc, char** argv) {
         const bool crc = getenv("RC_FRAME_CRC") != nullptr;   // each frame's CRC, to diff two runs
         int kept = 0, made = 0;
         double sumDrawn = 0;   // what the renderer rastered (ThorvgPaintContext::drawn), % of the frame
+        // A panel sent only the drawn regions, as a board's presentAsyncRegions: where it ends up
+        // unlike the frame, a partial send leaves stale pixels.
+        std::vector<uint32_t> panel = px;
+        long stale = 0;
+        int staleFrames = 0;
         float t = ctx.getAnimationTime();
         double sumBox = 0, sumTile = 0, sumPx = 0, maxBox = 0, maxTile = 0;
         int still = 0;
@@ -393,6 +398,24 @@ int main(int argc, char** argv) {
                 double a = 0;
                 for (size_t i = 0; i + 3 < d.size(); i += 4) a += (double) d[i + 2] * d[i + 3];
                 sumDrawn += 100.0 * a / ((double) sw * sh);
+                for (size_t i = 0; i + 3 < d.size(); i += 4)
+                    for (int y = d[i + 1]; y < d[i + 1] + d[i + 3]; y++)
+                        std::memcpy(&panel[(size_t) y * sw + d[i]], &buf[(size_t) y * sw + d[i]], (size_t) d[i + 2] * 4);
+                long n = 0;
+                int bx0 = sw, by0 = sh, bx1 = -1, by1 = -1;
+                for (int y = 0; y < sh; y++)
+                    for (int x = 0; x < sw; x++)
+                        if (panel[(size_t) y * sw + x] != buf[(size_t) y * sw + x]) {
+                            n++;
+                            bx0 = std::min(bx0, x), bx1 = std::max(bx1, x), by0 = std::min(by0, y), by1 = std::max(by1, y);
+                        }
+                if (n) {
+                    if (getenv("RC_DAMAGE_VERBOSE") || staleFrames < 3)
+                        std::printf("  frame %3d: the panel would be stale in %ld px (%d,%d-%d,%d)\n", f, n, bx0, by0, bx1, by1);
+                    stale += n;
+                    staleFrames++;
+                    panel = buf;   // as if resent: count each frame's own
+                }
                 if (getenv("RC_DAMAGE_VERBOSE")) {
                     std::printf("  frame %3d: kept %d made %d, drawn", f, pc.keptCount(), pc.madeCount());
                     for (size_t i = 0; i + 3 < d.size() && i < 4 * 12; i += 4) std::printf(" %d,%d %dx%d", d[i], d[i + 1], d[i + 2], d[i + 3]);
@@ -429,9 +452,9 @@ int main(int argc, char** argv) {
         }
         pc.retarget(px.data());
         px = prev;   // the last frame, for the PNG
-        std::printf("damage over %d frames: box %.1f%% (max %.1f%%), %dx%d tiles %.1f%% (max %.1f%%), pixels %.1f%%, %d frames unchanged; paints kept %.0f%%, drawn %.1f%%\n",
+        std::printf("damage over %d frames: box %.1f%% (max %.1f%%), %dx%d tiles %.1f%% (max %.1f%%), pixels %.1f%%, %d frames unchanged; paints kept %.0f%%, drawn %.1f%%, panel stale in %d frames\n",
                     damage, sumBox / damage, maxBox, kTile, kTile, sumTile / damage, maxTile, sumPx / damage, still,
-                    kept + made ? 100.0 * kept / (kept + made) : 0.0, sumDrawn / damage);
+                    kept + made ? 100.0 * kept / (kept + made) : 0.0, sumDrawn / damage, staleFrames);
     }
 
     if (bench > 0) {
