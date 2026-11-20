@@ -10,6 +10,7 @@
 #include "board/knob.h"
 
 #include <algorithm>
+#include <vector>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -477,16 +478,50 @@ static void sendFrame(const uint32_t* argb, int srcW, int srcH) {
     xSemaphoreGive(sFree);
 }
 
+// Only the regions given (a full-size frame): each converted and sent in strips of the strip
+// buffers' size, behind a window of its own. The panel keeps the rest.
+static void sendRegions(const uint32_t* argb, const std::vector<int32_t>& r) {
+    int which = 0;
+    for (size_t i = 0; i + 3 < r.size(); i += 4) {
+        const int x = std::max(0, (int) r[i]), y = std::max(0, (int) r[i + 1]);
+        const int w = std::min(kWidth - x, (int) r[i + 2]), h = std::min(kHeight - y, (int) r[i + 3]);
+        if (w <= 0 || h <= 0) continue;
+        const int per = std::max(1, std::min(h, kWidth * kStripLines / w));   // rows a strip holds
+        const int x1 = x + w - 1;
+        cmd(0x2A, {(uint8_t) (x >> 8), (uint8_t) x, (uint8_t) (x1 >> 8), (uint8_t) x1});
+        for (int y0 = y; y0 < y + h; y0 += per) {
+            xSemaphoreTake(sFree, portMAX_DELAY);
+            uint16_t* dst = sStrip[which];
+            const int lines = std::min(per, y + h - y0);
+            for (int row = 0; row < lines; row++) {
+                const uint32_t* src = argb + (size_t) (y0 + row) * kWidth + x;
+                uint16_t* d = dst + (size_t) row * w;
+                for (int k = 0; k < w; k++) d[k] = toPanel565(src[k]);
+            }
+            const int y1 = y0 + lines - 1;
+            cmd(0x2B, {(uint8_t) (y0 >> 8), (uint8_t) y0, (uint8_t) (y1 >> 8), (uint8_t) y1});
+            esp_lcd_panel_io_tx_color(sIo, 0x2C, dst, (size_t) lines * w * 2);
+            which ^= 1;
+        }
+    }
+    xSemaphoreTake(sFree, portMAX_DELAY);
+    xSemaphoreTake(sFree, portMAX_DELAY);
+    xSemaphoreGive(sFree);
+    xSemaphoreGive(sFree);
+}
+
 // A sender task on core 0 converts and sends frame N while the player (core 1) renders N+1.
 static TaskHandle_t sSender;
 static SemaphoreHandle_t sJob, sIdle;
 static const uint32_t* sJobArgb;
 static int sJobW, sJobH;
+static std::vector<int32_t> sJobRegions;   // empty: the whole frame
 
 static void senderTask(void*) {
     while (true) {
         xSemaphoreTake(sJob, portMAX_DELAY);
-        sendFrame(sJobArgb, sJobW, sJobH);
+        if (sJobRegions.empty()) sendFrame(sJobArgb, sJobW, sJobH);
+        else sendRegions(sJobArgb, sJobRegions);
         xSemaphoreGive(sIdle);
     }
 }
@@ -497,7 +532,9 @@ void presentWait() {
     xSemaphoreGive(sIdle);
 }
 
-void presentAsync(const uint32_t* argb, int srcW, int srcH) {
+void presentAsync(const uint32_t* argb, int srcW, int srcH) { presentAsyncRegions(argb, srcW, srcH, nullptr, 0); }
+
+void presentAsyncRegions(const uint32_t* argb, int srcW, int srcH, const int32_t* xywh, int n) {
     if (!sSender) {
         sJob = xSemaphoreCreateBinary();
         sIdle = xSemaphoreCreateBinary();
@@ -505,6 +542,8 @@ void presentAsync(const uint32_t* argb, int srcW, int srcH) {
         xTaskCreatePinnedToCore(senderTask, "lcd_send", 3072, nullptr, 6, &sSender, 0);
     }
     xSemaphoreTake(sIdle, portMAX_DELAY);
+    if (n > 0 && srcW == kWidth && srcH == kHeight) sJobRegions.assign(xywh, xywh + 4 * n);
+    else sJobRegions.clear();
     sJobArgb = argb;
     sJobW = srcW;
     sJobH = srcH;

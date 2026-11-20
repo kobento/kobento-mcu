@@ -36,6 +36,10 @@ int64_t present(const uint32_t* argb, int srcW, int srcH);
 // frame first.
 void presentAsync(const uint32_t* argb, int srcW, int srcH);
 void presentWait();
+// As presentAsync, but only the n regions given (x, y, w, h in `argb`'s pixels, copied): the
+// panel holds the frame before, and these are where this one differs. A source smaller than the
+// panel goes whole. (rcstage has a weak default: the whole frame.)
+void presentAsyncRegions(const uint32_t* argb, int srcW, int srcH, const int32_t* xywh, int n);
 
 // No scan-out buffer to read back: the panel's memory is behind SPI.
 const uint16_t* frameBuffer();
