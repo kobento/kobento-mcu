@@ -58,6 +58,10 @@ struct SwRenderer : RenderMethod
     // Kobento: a target the same size, stride and colour space as the current one (another
     // buffer of a double-buffered pair): the paints' prepared data still holds.
     bool sameTarget(uint32_t stride, uint32_t w, uint32_t h, ColorSpace cs) const;
+    // Kobento: force a full raster next; whether the next is full; the last raster's regions
+    void redrawAll() { fulldraw = true; }
+    bool redrawingAll() { return fulldraw || dirtyRegion.deactivated(); }
+    uint32_t drawn(int32_t* xywh, uint32_t max) const;
 
     //composition
     SwSurface* request(int channelSize, bool square);
@@ -85,6 +89,8 @@ struct SwRenderer : RenderMethod
 
 private:
     bool                 fulldraw = true;             //buffer is cleared (need to redraw full screen)
+    Array<RenderRegion>  lastDrawn;                   //Kobento: the last raster's regions
+    bool                 lastFull = true;             //Kobento: the last raster was full
     Array<SwTask*>       tasks;                       //async task list
     Array<SwSurface*>    compositors;                 //render targets cache list
     RenderDirtyRegion    dirtyRegion;                 //partial rendering support

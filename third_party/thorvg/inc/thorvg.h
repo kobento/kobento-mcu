@@ -2376,6 +2376,21 @@ struct TVG_API SwCanvas final : Canvas
      */
     static SwCanvas* gen(EngineOption op = EngineOption::Default) noexcept;
 
+    /**
+     * Kobento: the next draw() rasters the whole target (its pixels aren't the last draw()'s).
+     * A target of the same size given again keeps partial rendering: the caller keeps it in step.
+     */
+    Result redraw() noexcept;
+
+    /** Kobento: whether the next draw() rasters the whole target. */
+    bool redrawing() const noexcept;
+
+    /**
+     * Kobento: the regions the last draw() rastered, as @p max (x, y, w, h) quadruples at most in
+     * @p xywh; the whole target when it rastered all. Returns how many there are.
+     */
+    uint32_t drawn(int32_t* xywh, uint32_t max) const noexcept;
+
     _TVG_DECLARE_PRIVATE(SwCanvas);
 };
 

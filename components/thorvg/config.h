@@ -9,6 +9,8 @@
 #define THORVG_SFNT_LOADER_SUPPORT 1
 #define THORVG_TTF_LOADER_SUPPORT 1
 #define THORVG_FILE_IO_SUPPORT 1
+// Partial rendering: a draw() rasters only where paints changed (kept paints, KobentoVG)
+#define THORVG_PARTIAL_RENDER_SUPPORT 1
 #ifdef RC_TVG_THREADS
 #define THORVG_THREAD_SUPPORT 1
 #endif

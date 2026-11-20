@@ -361,6 +361,7 @@ int main(int argc, char** argv) {
         std::vector<uint32_t> alt = px;
         const bool crc = getenv("RC_FRAME_CRC") != nullptr;   // each frame's CRC, to diff two runs
         int kept = 0, made = 0;
+        double sumDrawn = 0;   // what the renderer rastered (ThorvgPaintContext::drawn), % of the frame
         float t = ctx.getAnimationTime();
         double sumBox = 0, sumTile = 0, sumPx = 0, maxBox = 0, maxTile = 0;
         int still = 0;
@@ -387,6 +388,17 @@ int main(int argc, char** argv) {
             frame();
             kept += pc.keptCount();
             made += pc.madeCount();
+            {
+                const auto& d = pc.drawn();
+                double a = 0;
+                for (size_t i = 0; i + 3 < d.size(); i += 4) a += (double) d[i + 2] * d[i + 3];
+                sumDrawn += 100.0 * a / ((double) sw * sh);
+                if (getenv("RC_DAMAGE_VERBOSE")) {
+                    std::printf("  frame %3d: kept %d made %d, drawn", f, pc.keptCount(), pc.madeCount());
+                    for (size_t i = 0; i + 3 < d.size() && i < 4 * 12; i += 4) std::printf(" %d,%d %dx%d", d[i], d[i + 1], d[i + 2], d[i + 3]);
+                    std::printf("%s\n", d.size() > 48 ? " ..." : "");
+                }
+            }
             if (crc) std::printf("  crc %3d %08lx\n", f, crc32(0, reinterpret_cast<const Bytef*>(buf.data()), (uInt) (buf.size() * 4)));
             int x0 = sw, y0 = sh, x1 = -1, y1 = -1;
             long changed = 0;
@@ -417,9 +429,9 @@ int main(int argc, char** argv) {
         }
         pc.retarget(px.data());
         px = prev;   // the last frame, for the PNG
-        std::printf("damage over %d frames: box %.1f%% (max %.1f%%), %dx%d tiles %.1f%% (max %.1f%%), pixels %.1f%%, %d frames unchanged; paints kept %.0f%%\n",
+        std::printf("damage over %d frames: box %.1f%% (max %.1f%%), %dx%d tiles %.1f%% (max %.1f%%), pixels %.1f%%, %d frames unchanged; paints kept %.0f%%, drawn %.1f%%\n",
                     damage, sumBox / damage, maxBox, kTile, kTile, sumTile / damage, maxTile, sumPx / damage, still,
-                    kept + made ? 100.0 * kept / (kept + made) : 0.0);
+                    kept + made ? 100.0 * kept / (kept + made) : 0.0, sumDrawn / damage);
     }
 
     if (bench > 0) {

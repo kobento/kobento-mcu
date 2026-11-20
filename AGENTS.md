@@ -216,6 +216,15 @@ paint without a getter seeing it must go into that key. Check a change over fram
 and once with `RC_NO_RETAIN=1`, every frame's CRC equal (`documents/fit/maze*.rc` differ from run to
 run anyway). On a board, `rcstage::requestDocBench` times a screen both ways.
 
+**Partial frames.** With kept paints a frame rasters only where they changed (ThorVG's partial
+rendering: what was prepared, and what was removed, which the backend hides first so ThorVG marks
+it), and only that goes to the panel: `ThorvgPaintContext::drawn()`, merged by rcstage, to
+`board::presentAsyncRegions` (a weak default in rcstage sends the whole frame; the mic board sends
+the regions). The two frame buffers are kept in step by `retarget()`, which copies the last frame's
+regions into the other one. So **anything that writes a frame buffer other than the backend must
+call `ThorvgPaintContext::redrawAll()`** (rcstage's `bench()` does), or the next frames draw
+over stale pixels. The mic's VU screen: 26 fps whole, 86 fps partial.
+
 ## Board-specific traps (each board's README has more)
 
 - **Waveshare round (CH343P bridge) on macOS:** the built-in CDC driver corrupts packets of

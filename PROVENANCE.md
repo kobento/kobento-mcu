@@ -23,7 +23,11 @@ A fork of **ThorVG** (MIT), vendored at v1.0.7, with local patches:
 - for paints kept across frames (`ThorvgPaintContext::setRetain`): retargeting a canvas to another
   buffer of the same size keeps its paints' prepared data (`SwCanvas::target`,
   `SwRenderer::sameTarget`), and a raw picture shares a cached loader only for the same size and
-  colour space, premultiplied (`LoaderMgr::loader`). Both are marked `Kobento:`.
+  colour space, premultiplied (`LoaderMgr::loader`);
+- partial rendering compiled in (`THORVG_PARTIAL_RENDER_SUPPORT`), with `SwCanvas::redraw`,
+  `redrawing` and `drawn` (the regions a draw rastered), and the gradient span rasterizers taking
+  the region to raster, as the solid ones do (they rastered a gradient-filled path whole).
+  All are marked `Kobento:`.
 
 The integration layer we author on top of it — `components/kobentovg` (`ThorvgPaintContext`,
 namespace `kobentovg`) — is **KobentoVG**, Kobento's vector-graphics layer. It has nothing to

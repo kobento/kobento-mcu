@@ -1371,40 +1371,47 @@ static bool _rasterConicGradientRect(SwSurface* surface, const RenderRegion& bbo
 /* Rle Gradient                                                         */
 /************************************************************************/
 
+// Kobento: these take the region to raster, as the solid ones do (partial rendering rastered a
+// gradient-filled path whole, over paints kept outside the region).
+
 template<typename fillMethod>
-static bool _rasterCompositeGradientMaskedRle(SwSurface* surface, const SwRle* rle, const SwFill* fill, SwMask maskOp)
+static bool _rasterCompositeGradientMaskedRle(SwSurface* surface, const SwRle* rle, const RenderRegion& bbox, const SwFill* fill, SwMask maskOp)
 {
-    auto span = rle->data();
+    const SwSpan* end;
+    int32_t x, len;
     auto cstride = surface->compositor->image.stride;
     auto cbuffer = surface->compositor->image.buf8;
 
-    for (uint32_t i = 0; i < rle->size(); ++i, ++span) {
-        auto cmp = &cbuffer[span->y * cstride + span->x];
-        fillMethod()(fill, cmp, span->y, span->x, span->len, maskOp, span->coverage);
+    for (auto span = rle->fetch(bbox, &end); span < end; ++span) {
+            if (!span->fetch(bbox, x, len)) continue;
+        auto cmp = &cbuffer[span->y * cstride + x];
+        fillMethod()(fill, cmp, span->y, x, len, maskOp, span->coverage);
     }
     return _compositeMaskImage(surface, surface->compositor->image, surface->compositor->bbox);
 }
 
 
 template<typename fillMethod>
-static bool _rasterDirectGradientMaskedRle(SwSurface* surface, const SwRle* rle, const SwFill* fill, SwMask maskOp)
+static bool _rasterDirectGradientMaskedRle(SwSurface* surface, const SwRle* rle, const RenderRegion& bbox, const SwFill* fill, SwMask maskOp)
 {
-    auto span = rle->data();
+    const SwSpan* end;
+    int32_t x, len;
     auto cstride = surface->compositor->image.stride;
     auto cbuffer = surface->compositor->image.buf8;
     auto dbuffer = surface->buf8;
 
-    for (uint32_t i = 0; i < rle->size(); ++i, ++span) {
-        auto cmp = &cbuffer[span->y * cstride + span->x];
-        auto dst = &dbuffer[span->y * surface->stride + span->x];
-        fillMethod()(fill, dst, span->y, span->x, span->len, cmp, maskOp, span->coverage);
+    for (auto span = rle->fetch(bbox, &end); span < end; ++span) {
+            if (!span->fetch(bbox, x, len)) continue;
+        auto cmp = &cbuffer[span->y * cstride + x];
+        auto dst = &dbuffer[span->y * surface->stride + x];
+        fillMethod()(fill, dst, span->y, x, len, cmp, maskOp, span->coverage);
     }
     return true;
 }
 
 
 template<typename fillMethod>
-static bool _rasterGradientMaskedRle(SwSurface* surface, const SwRle* rle, const SwFill* fill)
+static bool _rasterGradientMaskedRle(SwSurface* surface, const SwRle* rle, const RenderRegion& bbox, const SwFill* fill)
 {
     auto method = surface->compositor->method;
 
@@ -1412,61 +1419,68 @@ static bool _rasterGradientMaskedRle(SwSurface* surface, const SwRle* rle, const
 
     auto maskOp = _getMaskOp(method);
 
-    if (_direct(method)) return _rasterDirectGradientMaskedRle<fillMethod>(surface, rle, fill, maskOp);
-    else return _rasterCompositeGradientMaskedRle<fillMethod>(surface, rle, fill, maskOp);
+    if (_direct(method)) return _rasterDirectGradientMaskedRle<fillMethod>(surface, rle, bbox, fill, maskOp);
+    else return _rasterCompositeGradientMaskedRle<fillMethod>(surface, rle, bbox, fill, maskOp);
     return false;
 }
 
 
 template<typename fillMethod>
-static bool _rasterGradientMattedRle(SwSurface* surface, const SwRle* rle, const SwFill* fill)
+static bool _rasterGradientMattedRle(SwSurface* surface, const SwRle* rle, const RenderRegion& bbox, const SwFill* fill)
 {
     TVGLOG("SW_ENGINE", "Matted(%d) Rle Linear Gradient", (int)surface->compositor->method);
 
-    auto span = rle->data();
+    const SwSpan* end;
+    int32_t x, len;
     auto csize = surface->compositor->image.channelSize;
     auto cbuffer = surface->compositor->image.buf8;
     auto alpha = surface->alpha(surface->compositor->method);
 
-    for (uint32_t i = 0; i < rle->size(); ++i, ++span) {
-        auto dst = &surface->buf32[span->y * surface->stride + span->x];
-        auto cmp = &cbuffer[(span->y * surface->compositor->image.stride + span->x) * csize];
-        fillMethod()(fill, dst, span->y, span->x, span->len, cmp, alpha, csize, span->coverage);
+    for (auto span = rle->fetch(bbox, &end); span < end; ++span) {
+            if (!span->fetch(bbox, x, len)) continue;
+        auto dst = &surface->buf32[span->y * surface->stride + x];
+        auto cmp = &cbuffer[(span->y * surface->compositor->image.stride + x) * csize];
+        fillMethod()(fill, dst, span->y, x, len, cmp, alpha, csize, span->coverage);
     }
     return true;
 }
 
 
 template<typename fillMethod>
-static bool _rasterBlendingGradientRle(SwSurface* surface, const SwRle* rle, const SwFill* fill)
+static bool _rasterBlendingGradientRle(SwSurface* surface, const SwRle* rle, const RenderRegion& bbox, const SwFill* fill)
 {
-    auto span = rle->data();
+    const SwSpan* end;
+    int32_t x, len;
 
-    for (uint32_t i = 0; i < rle->size(); ++i, ++span) {
-        auto dst = &surface->buf32[span->y * surface->stride + span->x];
-        fillMethod()(surface, fill, dst, span->y, span->x, span->len, opBlendPreNormal, surface->blender, span->coverage);
+    for (auto span = rle->fetch(bbox, &end); span < end; ++span) {
+            if (!span->fetch(bbox, x, len)) continue;
+        auto dst = &surface->buf32[span->y * surface->stride + x];
+        fillMethod()(surface, fill, dst, span->y, x, len, opBlendPreNormal, surface->blender, span->coverage);
     }
     return true;
 }
 
 
 template<typename fillMethod>
-static bool _rasterTranslucentGradientRle(SwSurface* surface, const SwRle* rle, const SwFill* fill)
+static bool _rasterTranslucentGradientRle(SwSurface* surface, const SwRle* rle, const RenderRegion& bbox, const SwFill* fill)
 {
-    auto span = rle->data();
+    const SwSpan* end;
+    int32_t x, len;
 
     //32 bits
     if (surface->channelSize == sizeof(uint32_t)) {
-        for (uint32_t i = 0; i < rle->size(); ++i, ++span) {
-            auto dst = &surface->buf32[span->y * surface->stride + span->x];
-            if (span->coverage == 255) fillMethod()(fill, dst, span->y, span->x, span->len, opBlendPreNormal, 255);
-            else fillMethod()(fill, dst, span->y, span->x, span->len, opBlendNormal, span->coverage);
+        for (auto span = rle->fetch(bbox, &end); span < end; ++span) {
+            if (!span->fetch(bbox, x, len)) continue;
+            auto dst = &surface->buf32[span->y * surface->stride + x];
+            if (span->coverage == 255) fillMethod()(fill, dst, span->y, x, len, opBlendPreNormal, 255);
+            else fillMethod()(fill, dst, span->y, x, len, opBlendNormal, span->coverage);
         }
     //8 bits
     } else if (surface->channelSize == sizeof(uint8_t)) {
-        for (uint32_t i = 0; i < rle->size(); ++i, ++span) {
-            auto dst = &surface->buf8[span->y * surface->stride + span->x];
-            fillMethod()(fill, dst, span->y, span->x, span->len, _opMaskAdd, span->coverage);
+        for (auto span = rle->fetch(bbox, &end); span < end; ++span) {
+            if (!span->fetch(bbox, x, len)) continue;
+            auto dst = &surface->buf8[span->y * surface->stride + x];
+            fillMethod()(fill, dst, span->y, x, len, _opMaskAdd, span->coverage);
         }
     }
     return true;
@@ -1474,23 +1488,26 @@ static bool _rasterTranslucentGradientRle(SwSurface* surface, const SwRle* rle, 
 
 
 template<typename fillMethod>
-static bool _rasterSolidGradientRle(SwSurface* surface, const SwRle* rle, const SwFill* fill)
+static bool _rasterSolidGradientRle(SwSurface* surface, const SwRle* rle, const RenderRegion& bbox, const SwFill* fill)
 {
-    auto span = rle->data();
+    const SwSpan* end;
+    int32_t x, len;
 
     //32 bits
     if (surface->channelSize == sizeof(uint32_t)) {
-        for (uint32_t i = 0; i < rle->size(); ++i, ++span) {
-            auto dst = &surface->buf32[span->y * surface->stride + span->x];
-            if (span->coverage == 255) fillMethod()(fill, dst, span->y, span->x, span->len, opBlendSrcOver, 255);
-            else fillMethod()(fill, dst, span->y, span->x, span->len, opBlendInterp, span->coverage);
+        for (auto span = rle->fetch(bbox, &end); span < end; ++span) {
+            if (!span->fetch(bbox, x, len)) continue;
+            auto dst = &surface->buf32[span->y * surface->stride + x];
+            if (span->coverage == 255) fillMethod()(fill, dst, span->y, x, len, opBlendSrcOver, 255);
+            else fillMethod()(fill, dst, span->y, x, len, opBlendInterp, span->coverage);
         }
     //8 bits
     } else if (surface->channelSize == sizeof(uint8_t)) {
-        for (uint32_t i = 0; i < rle->size(); ++i, ++span) {
-            auto dst = &surface->buf8[span->y * surface->stride + span->x];
-            if (span->coverage == 255) fillMethod()(fill, dst, span->y, span->x, span->len, _opMaskNone, 255);
-            else fillMethod()(fill, dst, span->y, span->x, span->len, _opMaskAdd, span->coverage);
+        for (auto span = rle->fetch(bbox, &end); span < end; ++span) {
+            if (!span->fetch(bbox, x, len)) continue;
+            auto dst = &surface->buf8[span->y * surface->stride + x];
+            if (span->coverage == 255) fillMethod()(fill, dst, span->y, x, len, _opMaskNone, 255);
+            else fillMethod()(fill, dst, span->y, x, len, _opMaskAdd, span->coverage);
         }
     }
 
@@ -1498,46 +1515,46 @@ static bool _rasterSolidGradientRle(SwSurface* surface, const SwRle* rle, const 
 }
 
 
-static bool _rasterLinearGradientRle(SwSurface* surface, const SwRle* rle, const SwFill* fill)
+static bool _rasterLinearGradientRle(SwSurface* surface, const SwRle* rle, const RenderRegion& bbox, const SwFill* fill)
 {
     if (_compositing(surface)) {
-        if (_matting(surface)) return _rasterGradientMattedRle<FillLinear>(surface, rle, fill);
-        else return _rasterGradientMaskedRle<FillLinear>(surface, rle, fill);
+        if (_matting(surface)) return _rasterGradientMattedRle<FillLinear>(surface, rle, bbox, fill);
+        else return _rasterGradientMaskedRle<FillLinear>(surface, rle, bbox, fill);
     } else if (_blending(surface)) {
-        return _rasterBlendingGradientRle<FillLinear>(surface, rle, fill);
+        return _rasterBlendingGradientRle<FillLinear>(surface, rle, bbox, fill);
     } else {
-        if (fill->translucent) return _rasterTranslucentGradientRle<FillLinear>(surface, rle, fill);
-        else return _rasterSolidGradientRle<FillLinear>(surface, rle, fill);
+        if (fill->translucent) return _rasterTranslucentGradientRle<FillLinear>(surface, rle, bbox, fill);
+        else return _rasterSolidGradientRle<FillLinear>(surface, rle, bbox, fill);
     }
     return false;
 }
 
 
-static bool _rasterRadialGradientRle(SwSurface* surface, const SwRle* rle, const SwFill* fill)
+static bool _rasterRadialGradientRle(SwSurface* surface, const SwRle* rle, const RenderRegion& bbox, const SwFill* fill)
 {
     if (_compositing(surface)) {
-        if (_matting(surface)) return _rasterGradientMattedRle<FillRadial>(surface, rle, fill);
-        else return _rasterGradientMaskedRle<FillRadial>(surface, rle, fill);
+        if (_matting(surface)) return _rasterGradientMattedRle<FillRadial>(surface, rle, bbox, fill);
+        else return _rasterGradientMaskedRle<FillRadial>(surface, rle, bbox, fill);
     } else if (_blending(surface)) {
-        return _rasterBlendingGradientRle<FillRadial>(surface, rle, fill);
+        return _rasterBlendingGradientRle<FillRadial>(surface, rle, bbox, fill);
     } else {
-        if (fill->translucent) return _rasterTranslucentGradientRle<FillRadial>(surface, rle, fill);
-        else return _rasterSolidGradientRle<FillRadial>(surface, rle, fill);
+        if (fill->translucent) return _rasterTranslucentGradientRle<FillRadial>(surface, rle, bbox, fill);
+        else return _rasterSolidGradientRle<FillRadial>(surface, rle, bbox, fill);
     }
     return false;
 }
 
 
-static bool _rasterConicGradientRle(SwSurface* surface, const SwRle* rle, const SwFill* fill)
+static bool _rasterConicGradientRle(SwSurface* surface, const SwRle* rle, const RenderRegion& bbox, const SwFill* fill)
 {
     if (_compositing(surface)) {
-        if (_matting(surface)) return _rasterGradientMattedRle<FillConic>(surface, rle, fill);
-        else return _rasterGradientMaskedRle<FillConic>(surface, rle, fill);
+        if (_matting(surface)) return _rasterGradientMattedRle<FillConic>(surface, rle, bbox, fill);
+        else return _rasterGradientMaskedRle<FillConic>(surface, rle, bbox, fill);
     } else if (_blending(surface)) {
-        return _rasterBlendingGradientRle<FillConic>(surface, rle, fill);
+        return _rasterBlendingGradientRle<FillConic>(surface, rle, bbox, fill);
     } else {
-        if (fill->translucent) return _rasterTranslucentGradientRle<FillConic>(surface, rle, fill);
-        else return _rasterSolidGradientRle<FillConic>(surface, rle, fill);
+        if (fill->translucent) return _rasterTranslucentGradientRle<FillConic>(surface, rle, bbox, fill);
+        else return _rasterSolidGradientRle<FillConic>(surface, rle, bbox, fill);
     }
     return false;
 }
@@ -1770,9 +1787,9 @@ bool rasterGradientShape(SwSurface* surface, SwShape* shape, const RenderRegion&
         else if (type == Type::RadialGradient)return _rasterRadialGradientRect(surface, bbox, shape->fill);
         else if (type == Type::ConicGradient) return _rasterConicGradientRect(surface, bbox, shape->fill);
     } else if (shape->rle && shape->rle->valid()) {
-        if (type == Type::LinearGradient) return _rasterLinearGradientRle(surface, shape->rle, shape->fill);
-        else if (type == Type::RadialGradient) return _rasterRadialGradientRle(surface, shape->rle, shape->fill);
-        else if (type == Type::ConicGradient) return _rasterConicGradientRle(surface, shape->rle, shape->fill);
+        if (type == Type::LinearGradient) return _rasterLinearGradientRle(surface, shape->rle, bbox, shape->fill);
+        else if (type == Type::RadialGradient) return _rasterRadialGradientRle(surface, shape->rle, bbox, shape->fill);
+        else if (type == Type::ConicGradient) return _rasterConicGradientRle(surface, shape->rle, bbox, shape->fill);
     } return false;
 }
 
@@ -1788,9 +1805,9 @@ bool rasterGradientStroke(SwSurface* surface, SwShape* shape, const RenderRegion
     }
 
     auto type = fdata->type();
-    if (type == Type::LinearGradient) return _rasterLinearGradientRle(surface, shape->strokeRle, shape->stroke->fill);
-    else if (type == Type::RadialGradient) return _rasterRadialGradientRle(surface, shape->strokeRle, shape->stroke->fill);
-    else if (type == Type::ConicGradient) return _rasterConicGradientRle(surface, shape->strokeRle, shape->stroke->fill);
+    if (type == Type::LinearGradient) return _rasterLinearGradientRle(surface, shape->strokeRle, bbox, shape->stroke->fill);
+    else if (type == Type::RadialGradient) return _rasterRadialGradientRle(surface, shape->strokeRle, bbox, shape->stroke->fill);
+    else if (type == Type::ConicGradient) return _rasterConicGradientRle(surface, shape->strokeRle, bbox, shape->stroke->fill);
     return false;
 }
 

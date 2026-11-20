@@ -284,9 +284,32 @@ bool SwRenderer::sameTarget(uint32_t stride, uint32_t w, uint32_t h, ColorSpace 
 }
 
 
+uint32_t SwRenderer::drawn(int32_t* xywh, uint32_t max) const
+{
+    if (lastFull || !surface) {
+        if (max > 0 && surface) {
+            xywh[0] = 0, xywh[1] = 0, xywh[2] = int32_t(surface->w), xywh[3] = int32_t(surface->h);
+        }
+        return surface ? 1 : 0;
+    }
+    for (uint32_t i = 0; i < lastDrawn.count && i < max; ++i) {
+        auto& r = lastDrawn[i];
+        xywh[i * 4] = r.x(), xywh[i * 4 + 1] = r.y(), xywh[i * 4 + 2] = r.w(), xywh[i * 4 + 3] = r.h();
+    }
+    return lastDrawn.count;
+}
+
+
 Result SwRenderer::target(pixel_t* data, uint32_t stride, uint32_t w, uint32_t h, ColorSpace cs)
 {
     if (!data || stride == 0 || w == 0 || h == 0 || w > stride) return Result::InvalidArguments;
+
+    // Kobento: another buffer of the same size (double buffering): partial rendering goes on, the
+    // caller having brought this buffer up to the last frame (SwCanvas::drawn, redraw).
+    if (sameTarget(stride, w, h, cs)) {
+        surface->data = data;
+        return Result::Success;
+    }
 
     clearCompositors();
 
@@ -323,11 +346,17 @@ bool SwRenderer::postUpdate()
 bool SwRenderer::preRender()
 {
     if (!surface) return false;
-    if (fulldraw || dirtyRegion.deactivated()) return true;
+    lastDrawn.clear();
+    lastFull = fulldraw || dirtyRegion.deactivated();
+    if (lastFull) return true;
 
     ARRAY_FOREACH(p, tasks) (*p)->done();
 
     dirtyRegion.commit();
+
+    for (int idx = 0; idx < RenderDirtyRegion::PARTITIONING; ++idx) {   //Kobento: kept for drawn()
+        ARRAY_FOREACH(p, dirtyRegion.get(idx)) lastDrawn.push(*p);
+    }
 
     //clear buffer for partial regions
     for (int idx = 0; idx < RenderDirtyRegion::PARTITIONING; ++idx) {

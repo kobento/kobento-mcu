@@ -77,6 +77,12 @@ public:
     // frame is built anew, as before. kept/made: the last frame's paints reused and built.
     void setRetain(bool on);
     bool retaining() const { return mRetain; }
+    // With kept paints, a frame rasters only where they changed (ThorVG's partial rendering), and
+    // retarget() brings the other buffer up to date first (copying what the last frame changed).
+    // drawn(): the regions the last frame rastered, x, y, w, h (the whole frame when it drew all).
+    // redrawAll(): the buffer's pixels were changed behind the context's back: draw all next.
+    const std::vector<int32_t>& drawn() const { return mDrawn; }
+    void redrawAll();
     int keptCount() const { return mKept; }
     int madeCount() const { return mMade; }
 
@@ -298,6 +304,9 @@ private:
     std::vector<Level> mLevels;    // during a frame: the canvas, then each open container
     bool mRetain = true;
     int mKept = 0, mMade = 0;
+    std::vector<int32_t> mDrawn;   // the last frame's drawn regions (drawn())
+    uint8_t mClearAlpha = 255;     // the clear rect's own alpha (hidden while the document covers it)
+    void removeNode(tvg::Scene* parent, tvg::Paint* p);   // its area marked to redraw, then removed
     uint64_t keyOf(tvg::Paint* p, uint64_t content) const;
     tvg::Paint* place(tvg::Paint* p, uint64_t key, bool container);   // the paint now in the tree
     void closeLevel();

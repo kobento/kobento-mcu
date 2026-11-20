@@ -140,6 +140,34 @@ Result SwCanvas::target(uint32_t* buffer, uint32_t stride, uint32_t w, uint32_t 
 }
 
 
+Result SwCanvas::redraw() noexcept
+{
+#ifdef THORVG_CPU_ENGINE_SUPPORT
+    static_cast<SwRenderer*>(pImpl->renderer)->redrawAll();
+    return Result::Success;
+#endif
+    return Result::NonSupport;
+}
+
+
+bool SwCanvas::redrawing() const noexcept
+{
+#ifdef THORVG_CPU_ENGINE_SUPPORT
+    return static_cast<SwRenderer*>(pImpl->renderer)->redrawingAll();
+#endif
+    return true;
+}
+
+
+uint32_t SwCanvas::drawn(int32_t* xywh, uint32_t max) const noexcept
+{
+#ifdef THORVG_CPU_ENGINE_SUPPORT
+    return static_cast<SwRenderer*>(pImpl->renderer)->drawn(xywh, max);
+#endif
+    return 0;
+}
+
+
 SwCanvas* SwCanvas::gen(EngineOption op) noexcept
 {
 #ifdef THORVG_CPU_ENGINE_SUPPORT

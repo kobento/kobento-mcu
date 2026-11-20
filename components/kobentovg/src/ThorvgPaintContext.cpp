@@ -282,7 +282,7 @@ static constexpr size_t kTextCacheBytes = 512 * 1024;
 void ThorvgPaintContext::beginFrame(const tvg::Matrix& base, uint32_t clearArgb) {
     // Kept paints: last frame's tree stays in the canvas, to be matched (place). A frame begun
     // and never ended (the paint profiler's) leaves no tree to trust.
-    if (!mRetain || !mLevels.empty()) dropRetained();
+    if (!mRetain || !mLevels.empty()) dropRetained();   // (and draws all)
     // Last frame's pictures are gone with it: cached text may go now. Over budget, what wasn't
     // drawn for a second or so (texts that change, numbers); still over, the lot.
     mFrameNo++;
@@ -313,8 +313,7 @@ void ThorvgPaintContext::beginFrame(const tvg::Matrix& base, uint32_t clearArgb)
             for (size_t i = 0; i < nodes.size(); i++) {
                 Node& n = nodes[i];
                 if (!n.key) {
-                    if (parent) parent->remove(n.p);
-                    else mCanvas->remove(n.p);
+                    removeNode(parent, n.p);
                     continue;
                 }
                 if (!n.kids.empty()) prune(static_cast<tvg::Scene*>(n.p), n.kids);
@@ -339,6 +338,7 @@ void ThorvgPaintContext::beginFrame(const tvg::Matrix& base, uint32_t clearArgb)
     bg->appendRect(0, 0, (float) mW, (float) mH);
     bg->fill((clearArgb >> 16) & 0xFF, (clearArgb >> 8) & 0xFF, clearArgb & 0xFF,
              clearArgb >> 24);
+    mClearAlpha = clearArgb >> 24;
     if (mRetain) mClear = place(bg, keyOf(bg, 0), false);
     else {
         mCanvas->add(bg);
@@ -349,9 +349,20 @@ void ThorvgPaintContext::beginFrame(const tvg::Matrix& base, uint32_t clearArgb)
 
 void ThorvgPaintContext::retarget(uint32_t* pixels) {
     if (pixels == mPixels) return;
+    // The new buffer holds the frame before last: what the last frame drew, copied from the
+    // buffer it drew into, makes it the last frame, for this one to draw only what changes.
+    if (mRetain && !mCanvas->redrawing()) {
+        for (size_t i = 0; i + 3 < mDrawn.size(); i += 4) {
+            const int x = mDrawn[i], y = mDrawn[i + 1], w = mDrawn[i + 2], h = mDrawn[i + 3];
+            for (int r = y; r < y + h; r++)
+                std::memcpy(pixels + (size_t) r * mW + x, mPixels + (size_t) r * mW + x, (size_t) w * 4);
+        }
+    }
     mPixels = pixels;
     mCanvas->target(mPixels, mW, mW, mH, tvg::ColorSpace::ARGB8888);
 }
+
+void ThorvgPaintContext::redrawAll() { mCanvas->redraw(); }
 
 void ThorvgPaintContext::addOverlay(tvg::Paint* p) {
     if (mRetain && !mLevels.empty()) {
@@ -376,16 +387,29 @@ void ThorvgPaintContext::endFrame() {
         closeLevelsTo(0);
         closeLevel();   // the canvas's: mRoot is this frame's tree
     }
-    if (mClear && mClearOpaque && !keep && documentCoversFrame()) {
+    const bool covered = mClear && mClearOpaque && !keep && documentCoversFrame();
+    if (mRetain && mClear) {
+        // Kept, hidden while covered: removed and put back each frame it would mark the whole
+        // frame to redraw. (Its key is from its first frame, when it showed.)
+        const uint8_t a = covered ? 0 : mClearAlpha;
+        if (mClear->opacity() != a) mClear->opacity(a);
+    } else if (covered) {
         mCanvas->remove(mClear);
-        if (!mRoot.empty() && mRoot.front().p == mClear) mRoot.erase(mRoot.begin());
     }
     mClear = nullptr;
-    // Every frame draws in full (into the other buffer, double buffering): with nothing changed
-    // draw() would draw nothing; update() prepares only what changed.
+    // update() prepares only what changed (with nothing changed, draw() would draw nothing);
+    // the raster is of what changed, or all (redrawing()): then a transparent clear clears all.
+    const bool all = mCanvas->redrawing();
     mCanvas->update();
-    mCanvas->draw(!mClearOpaque);
+    mCanvas->draw(all && !mClearOpaque);
     mCanvas->sync();
+    mDrawn.resize(64 * 4);
+    uint32_t n = mCanvas->drawn(mDrawn.data(), 64);
+    if (n > 64) {
+        mDrawn.resize((size_t) n * 4);
+        n = mCanvas->drawn(mDrawn.data(), n);
+    }
+    mDrawn.resize((size_t) n * 4);
 }
 
 static tvg::Paint* nth(const std::list<tvg::Paint*>& list, int i) {
@@ -663,10 +687,7 @@ tvg::Paint* ThorvgPaintContext::place(tvg::Paint* p, uint64_t key, bool containe
     // How far ahead to look for an equal paint: one inserted or removed shifts the rest.
     constexpr size_t kLookahead = 32;
     Level& L = mLevels.back();
-    auto removeOld = [&](tvg::Paint* q) {
-        if (L.scene) L.scene->remove(q);
-        else mCanvas->remove(q);
-    };
+    auto removeOld = [&](tvg::Paint* q) { removeNode(L.scene, q); };
     if (key) {
         const size_t end = std::min(L.old.size(), L.cursor + kLookahead);
         for (size_t j = L.cursor; j < end; j++) {
@@ -697,10 +718,7 @@ tvg::Paint* ThorvgPaintContext::place(tvg::Paint* p, uint64_t key, bool containe
 void ThorvgPaintContext::closeLevel() {
     Level L = std::move(mLevels.back());
     mLevels.pop_back();
-    for (size_t k = L.cursor; k < L.old.size(); k++) {   // not drawn this frame
-        if (L.scene) L.scene->remove(L.old[k].p);
-        else mCanvas->remove(L.old[k].p);
-    }
+    for (size_t k = L.cursor; k < L.old.size(); k++) removeNode(L.scene, L.old[k].p);   // not drawn this frame
     if (mLevels.empty()) mRoot = std::move(L.cur);
     else mLevels.back().cur.back().kids = std::move(L.cur);
 }
@@ -709,10 +727,18 @@ void ThorvgPaintContext::closeLevelsTo(size_t depth) {
     while (mLevels.size() > depth + 1) closeLevel();
 }
 
+void ThorvgPaintContext::removeNode(tvg::Scene* parent, tvg::Paint* p) {
+    // ThorVG marks nothing when a paint it alone holds goes: hiding it marks where it drew.
+    p->visible(false);
+    if (parent) parent->remove(p);
+    else mCanvas->remove(p);
+}
+
 void ThorvgPaintContext::dropRetained() {
     mLevels.clear();
     mRoot.clear();
     mCanvas->remove();
+    mCanvas->redraw();   // nothing to go by: all of the next frame
 }
 
 void ThorvgPaintContext::setRetain(bool on) {

@@ -35,6 +35,13 @@ extern const uint8_t _binary_Roboto_Regular_ttf_start[], _binary_Roboto_Regular_
 extern const uint8_t _binary_Roboto_Bold_ttf_start[], _binary_Roboto_Bold_ttf_end[];
 extern const uint8_t _binary_RobotoMono_Regular_ttf_start[], _binary_RobotoMono_Regular_ttf_end[];
 
+// A board that can send part of a frame implements this (board.h); others send it all.
+namespace board {
+__attribute__((weak)) void presentAsyncRegions(const uint32_t* argb, int srcW, int srcH, const int32_t*, int) {
+    presentAsync(argb, srcW, srcH);
+}
+}  // namespace board
+
 namespace rcstage {
 
 // Documents lay out in dp: the panel's pixels / the board's density (360 x 640 on the Tab5).
@@ -85,6 +92,39 @@ static void collectNamed(const std::vector<std::unique_ptr<rccore::Operation>>& 
 
 static bool sRetainOn = true;   // kept paints (setRetain), for every document loaded
 
+// The regions a frame drew (x, y, w, h), merged where that costs little: ThorVG cuts them along
+// a 4 x 4 grid, and each is a panel window of its own. Two go into their bounding box when it is
+// no more than kSlack pixels over the two; past kMax, all go into one.
+static void mergeRegions(std::vector<int32_t>& r) {
+    constexpr int64_t kSlack = 512;
+    constexpr size_t kMax = 24;
+    struct Box { int32_t x0, y0, x1, y1; int64_t area() const { return (int64_t) (x1 - x0) * (y1 - y0); } };
+    std::vector<Box> v;
+    for (size_t i = 0; i + 3 < r.size(); i += 4)
+        if (r[i + 2] > 0 && r[i + 3] > 0) v.push_back({r[i], r[i + 1], r[i] + r[i + 2], r[i + 1] + r[i + 3]});
+    auto join = [](const Box& a, const Box& b) {
+        return Box{std::min(a.x0, b.x0), std::min(a.y0, b.y0), std::max(a.x1, b.x1), std::max(a.y1, b.y1)};
+    };
+    for (bool again = true; again;) {
+        again = false;
+        for (size_t i = 0; i < v.size() && !again; i++)
+            for (size_t j = i + 1; j < v.size(); j++) {
+                const Box u = join(v[i], v[j]);
+                if (u.area() > v[i].area() + v[j].area() + kSlack) continue;
+                v[i] = u;
+                v.erase(v.begin() + j);
+                again = true;
+                break;
+            }
+    }
+    if (v.size() > kMax) {
+        for (size_t i = 1; i < v.size(); i++) v[0] = join(v[0], v[i]);
+        v.resize(1);
+    }
+    r.clear();
+    for (const Box& b : v) r.insert(r.end(), {b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0});
+}
+
 struct Player {
     // The document must outlive its CoreDocument; shared so other tasks can keep a copy
     // (rc.pin saves it) without copying it.
@@ -95,6 +135,7 @@ struct Player {
     std::unique_ptr<kobentovg::ThorvgPaintContext> pc;
     int dpW = 0, dpH = 0;         // the size the document lays out at
     int rw = 0, rh = 0;           // render buffer size
+    int64_t drawnPx = 0;          // pixels rastered since the last stats line
     // fit: the document at its own size, scaled by `scale` and offset by (ox, oy) dp to sit
     // centred in the screen's dp. Otherwise scale 1 and no offset.
     bool fit = false;
@@ -540,7 +581,8 @@ void requestDocBench(const std::string& var, float lo, float hi, int frames) {
 
 // The current document drawn `frames` times with kept paints off, then on, `var` moving between
 // lo and hi: the document's time (its paint: building the paints, and with kept paints matching
-// them) and the raster's, logged. Not presented: the screen shows the frame before until after.
+// them) and the raster's, logged; each frame presented as the player would (off: whole frames),
+// and the wall time a frame took, presenting included.
 static void runDocBench(const tvg::Matrix& base) {
     std::string var;
     float lo, hi;
@@ -555,8 +597,9 @@ static void runDocBench(const tvg::Matrix& base) {
     const bool was = pc.retaining();
     for (int on = 0; on < 2; on++) {
         pc.setRetain(on == 1);
-        int64_t tDoc = 0, tRaster = 0;
-        long kept = 0, made = 0;
+        int64_t tDoc = 0, tRaster = 0, tStart = 0;
+        long kept = 0, made = 0, sent = 0;
+        std::vector<int32_t> regions;
         for (int i = -2; i < frames; i++) {   // two frames first: the tree, the text cache
             const float u = 0.5f + 0.5f * std::sin(i * 0.37f);
             if (!var.empty()) sPlayer.setNamed(var, std::to_string(lo + (hi - lo) * u));
@@ -570,7 +613,17 @@ static void runDocBench(const tvg::Matrix& base) {
             const int64_t t1 = esp_timer_get_time();
             pc.endFrame();
             const int64_t t2 = esp_timer_get_time();
+            // presented as the player does (kept paints: only what changed), the sender overlapping
+            // the next frame
+            regions = pc.drawn();
+            if (on) mergeRegions(regions);
+            for (size_t r = 0; r + 3 < regions.size(); r += 4) sent += (long) regions[r + 2] * regions[r + 3];
+            if (!on) board::presentAsync(sBufs[sBack], sPlayer.rw, sPlayer.rh);
+            else if (!regions.empty())
+                board::presentAsyncRegions(sBufs[sBack], sPlayer.rw, sPlayer.rh, regions.data(), (int) regions.size() / 4);
+            else board::presentWait();
             sBack ^= 1;
+            if (i == -1) { tStart = esp_timer_get_time(); sent = 0; }
             if (i < 0) continue;
             tDoc += t1 - t0;
             tRaster += t2 - t1;
@@ -578,10 +631,13 @@ static void runDocBench(const tvg::Matrix& base) {
             made += pc.madeCount();
             if ((i & 7) == 7) vTaskDelay(1);   // let IDLE run (watchdog)
         }
-        ESP_LOGI(TAG, "docbench %s, %d frames, %s %g..%g: doc %.2f + raster %.2f = %.2f ms/frame, %ld kept %ld made",
+        board::presentWait();
+        const float wall = (esp_timer_get_time() - tStart) / 1000.0f / frames;
+        ESP_LOGI(TAG, "docbench %s, %d frames, %s %g..%g: doc %.2f + raster %.2f = %.2f ms/frame, %ld kept %ld made; "
+                 "presented: %.0f%% of the frame sent, %.2f ms/frame wall (%.0f fps)",
                  on ? "kept on " : "kept off", frames, var.empty() ? "(nothing)" : var.c_str(), lo, hi,
                  tDoc / 1000.0f / frames, tRaster / 1000.0f / frames, (tDoc + tRaster) / 1000.0f / frames,
-                 kept / frames, made / frames);
+                 kept / frames, made / frames, 100.0f * sent / ((float) frames * sPlayer.rw * sPlayer.rh), wall, 1000.0f / wall);
     }
     pc.setRetain(was);
     sDirty = true;
@@ -759,6 +815,7 @@ void bench() {
     else ESP_LOGW(TAG, "bench: no %u bytes of internal RAM for the strip", (unsigned) bytes);
     heap_caps_free(inPs);
     heap_caps_free(inInt);
+    if (sPlayer.pc) sPlayer.pc->redrawAll();   // the frame buffer was drawn over above
     sDirty = true;
 }
 
@@ -1070,7 +1127,22 @@ static void task(void*) {
         int64_t t2 = esp_timer_get_time();
         sPlayer.tDoc += t1 - t0;
         sPlayer.tRaster += t2 - t1;
-        board::presentAsync(sBufs[sBack], sPlayer.rw, sPlayer.rh);   // waits for the previous one
+        {
+            const auto& d = sPlayer.pc->drawn();   // what this frame rastered, for the stats
+            int64_t a = 0;
+            for (size_t i = 0; i + 3 < d.size(); i += 4) a += (int64_t) d[i + 2] * d[i + 3];
+            sPlayer.drawnPx += a;
+        }
+        {
+            // Only what changed goes to the panel (it holds the frame before); nothing, if nothing did.
+            static std::vector<int32_t> regions;
+            regions = sPlayer.pc->drawn();
+            mergeRegions(regions);
+            if (!regions.empty())
+                board::presentAsyncRegions(sBufs[sBack], sPlayer.rw, sPlayer.rh, regions.data(), (int) regions.size() / 4);
+            else
+                board::presentWait();   // as presentAsync would: the buffer may be drawn into next
+        }
         tPresent += esp_timer_get_time() - t2;
         sBack ^= 1;
         frames++;
@@ -1082,15 +1154,17 @@ static void task(void*) {
         sFrames++;
 
         if (sStatsNow || now - statsAt > 5000000) {
-            ESP_LOGI(TAG, "%dx%d %.1f fps | doc %.1f + raster %.1f ms | present wait %.1f ms | app %.1f ms | %d tvg paints, %d kept %d made | heap int %u psram %u",
+            ESP_LOGI(TAG, "%dx%d %.1f fps | doc %.1f + raster %.1f ms | present wait %.1f ms | app %.1f ms | %d tvg paints, %d kept %d made, %.0f%% drawn | heap int %u psram %u",
                      sPlayer.rw, sPlayer.rh, frames * 1e6f / (now - statsAt + 1),
                      sPlayer.tDoc / 1000.0f / frames, sPlayer.tRaster / 1000.0f / frames, tPresent / 1000.0f / frames,
                      tTick / 1000.0f / frames,
                      sPlayer.pc->paintCount(), sPlayer.pc->keptCount(), sPlayer.pc->madeCount(),
+                     frames ? 100.0f * sPlayer.drawnPx / ((float) frames * sPlayer.rw * sPlayer.rh) : 0.0f,
                      (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                      (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
             frames = 0; tPresent = 0; tTick = 0; statsAt = now; sStatsNow = false;
             sPlayer.tDoc = sPlayer.tRaster = 0;
+            sPlayer.drawnPx = 0;
         }
         vTaskDelay(1);   // let IDLE run (watchdog)
     }
