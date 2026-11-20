@@ -122,12 +122,14 @@ Result SwCanvas::target(uint32_t* buffer, uint32_t stride, uint32_t w, uint32_t 
 #ifdef THORVG_CPU_ENGINE_SUPPORT
     if (pImpl->status == Status::Updating || pImpl->status == Status::Drawing) return Result::InsufficientCondition;
 
-    auto ret = static_cast<SwRenderer*>(pImpl->renderer)->target(buffer, stride, w, h, cs);
+    auto sw = static_cast<SwRenderer*>(pImpl->renderer);
+    const bool same = sw->sameTarget(stride, w, h, cs);   // Kobento: double buffering keeps the paints
+    auto ret = sw->target(buffer, stride, w, h, cs);
     if (ret != Result::Success) return ret;
 
     pImpl->vport = {{0, 0}, {(int32_t)w, (int32_t)h}};
     pImpl->renderer->viewport(pImpl->vport);
-    pImpl->status = Status::Damaged;  // Paints must be updated again with this new target.
+    if (!same) pImpl->status = Status::Damaged;  // Paints must be updated again with this new target.
 
     //FIXME: The value must be associated with an individual canvas instance.
     ImageLoader::cs = static_cast<ColorSpace>(cs);

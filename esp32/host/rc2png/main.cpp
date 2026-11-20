@@ -5,6 +5,13 @@
 //                        [--density D] [--frames N] [--anim SEC] [--time MS] [--bench N]
 //                        [--sys ID=VALUE]... [--named NAME=VALUE]... [--bitmap NAME=W,H,FILE]... [--click X,Y]...
 //                        [--drag X0,Y0,X1,Y1]... [--print PATTERN]... [--live NAME=VALUE]... [--live-ms MS] [--live-dump PREFIX]
+//                        [--damage N] [--vary NAME=LO:HI[:COUNT]]... [--step-ms MS]
+//
+// --damage N draws N more frames, the clock (and --time) advancing --step-ms (33) each, every
+// --vary variable moving between LO and HI (a list of COUNT values when COUNT is given), and
+// prints how much of the frame changed from the one before: the box around the changed
+// pixels, the 16 x 16 tiles they touch, and the pixels themselves. The least a renderer that
+// redraws only what changed would have to redraw (and send).
 //
 // Default is "player" mode, the way a device shows a document: the document is laid out
 // into the W x H surface (window size vars 5/6 set), light theme. --native instead paints
@@ -18,6 +25,7 @@
 #include <zlib.h>
 
 #include <algorithm>
+#include <cmath>
 #include <array>
 #include <chrono>
 #include <functional>
@@ -112,7 +120,20 @@ int main(int argc, char** argv) {
     std::vector<std::pair<std::string, std::string>> named;   // NAMED_VARIABLE overrides
     struct HostBitmap { std::string name; int w, h; std::string file; };
     std::vector<HostBitmap> bitmaps;   // --bitmap NAME=W,H,FILE: a host-drawn bitmap's pixels
+    int damage = 0, stepMs = 33;
+    struct Vary { std::string name; float lo, hi; int count; };
+    std::vector<Vary> varies;
     for (int i = 3; i < argc; i++) {
+        if (!strcmp(argv[i], "--damage") && i + 1 < argc) { damage = atoi(argv[++i]); continue; }
+        if (!strcmp(argv[i], "--step-ms") && i + 1 < argc) { stepMs = std::max(1, atoi(argv[++i])); continue; }
+        if (!strcmp(argv[i], "--vary") && i + 1 < argc) {
+            std::string kv = argv[++i];
+            const size_t eq = kv.find('=');
+            Vary v{kv.substr(0, eq), 0, 1, 0};
+            if (eq != std::string::npos) sscanf(kv.c_str() + eq + 1, "%f:%f:%d", &v.lo, &v.hi, &v.count);
+            varies.push_back(v);
+            continue;
+        }
         if (!strcmp(argv[i], "--fit") && i + 2 < argc) { fitW = atoi(argv[++i]); fitH = atoi(argv[++i]); }
         else if (!strcmp(argv[i], "--frames") && i + 1 < argc) frames = std::max(1, atoi(argv[++i]));
         else if (!strcmp(argv[i], "--anim") && i + 1 < argc) anim = (float) atof(argv[++i]);
@@ -323,6 +344,82 @@ int main(int argc, char** argv) {
             else std::printf("  %s = %g\n", nv->varName.c_str(), ctx.getFloat(nv->varId));
             break;
         }
+    }
+
+    if (damage > 0) {
+        // Each variable moves smoothly with some jitter, as a level or a spectrum does.
+        uint32_t seed = 1;
+        auto rnd = [&] { seed = seed * 1664525u + 1013904223u; return (seed >> 8) / 16777216.0f; };
+        auto wave = [&](int f, int k) {
+            const float u = 0.5f + 0.35f * std::sin(f * 0.21f + k * 0.7f) + 0.15f * (rnd() - 0.5f);
+            return std::clamp(u, 0.0f, 1.0f);
+        };
+        constexpr int kTile = 16;
+        const int tw = (sw + kTile - 1) / kTile, th = (sh + kTile - 1) / kTile;
+        std::vector<uint32_t> prev = px;
+        // Two buffers in turn, as a device double-buffers (ThorvgPaintContext::retarget).
+        std::vector<uint32_t> alt = px;
+        const bool crc = getenv("RC_FRAME_CRC") != nullptr;   // each frame's CRC, to diff two runs
+        int kept = 0, made = 0;
+        float t = ctx.getAnimationTime();
+        double sumBox = 0, sumTile = 0, sumPx = 0, maxBox = 0, maxTile = 0;
+        int still = 0;
+        const double area = (double) sw * sh;
+        for (int f = 0; f < damage; f++) {
+            ctx.overrideFloat(rccore::RemoteContext::ID_ANIMATION_TIME, t += stepMs / 1000.0f);
+            if (timeMs >= 0) doc.setFixedTimeMs(timeMs + (int64_t) (f + 1) * stepMs);
+            for (size_t k = 0; k < varies.size(); k++) {
+                auto& v = varies[k];
+                std::string val;
+                if (v.count <= 0) {
+                    val = std::to_string(v.lo + (v.hi - v.lo) * wave(f, (int) k));
+                } else {
+                    for (int j = 0; j < v.count; j++) {
+                        if (j) val += ',';
+                        val += std::to_string(v.lo + (v.hi - v.lo) * wave(f, (int) k * 31 + j));
+                    }
+                }
+                setNamed(v.name, val);
+            }
+            static const bool single = getenv("RC_SINGLE_BUFFER") != nullptr;   // debug
+            std::vector<uint32_t>& buf = (f & 1) || single ? px : alt;
+            pc.retarget(buf.data());
+            frame();
+            kept += pc.keptCount();
+            made += pc.madeCount();
+            if (crc) std::printf("  crc %3d %08lx\n", f, crc32(0, reinterpret_cast<const Bytef*>(buf.data()), (uInt) (buf.size() * 4)));
+            int x0 = sw, y0 = sh, x1 = -1, y1 = -1;
+            long changed = 0;
+            std::vector<uint8_t> tiles((size_t) tw * th, 0);
+            for (int y = 0; y < sh; y++) {
+                const uint32_t* a = &buf[(size_t) y * sw];
+                const uint32_t* b = &prev[(size_t) y * sw];
+                for (int x = 0; x < sw; x++) {
+                    if (a[x] == b[x]) continue;
+                    changed++;
+                    x0 = std::min(x0, x); x1 = std::max(x1, x);
+                    y0 = std::min(y0, y); y1 = std::max(y1, y);
+                    tiles[(size_t) (y / kTile) * tw + x / kTile] = 1;
+                }
+            }
+            long nt = 0;
+            for (auto b : tiles) nt += b;
+            const double box = x1 < 0 ? 0 : 100.0 * (x1 - x0 + 1) * (y1 - y0 + 1) / area;
+            const double tile = 100.0 * nt / ((double) tw * th);
+            const double pix = 100.0 * changed / area;
+            if (x1 < 0) still++;
+            sumBox += box; sumTile += tile; sumPx += pix;
+            maxBox = std::max(maxBox, box); maxTile = std::max(maxTile, tile);
+            if (getenv("RC_DAMAGE_VERBOSE"))
+                std::printf("  frame %3d: box %5.1f%% (%d,%d %dx%d)  tiles %5.1f%%  pixels %5.1f%%\n", f, box, x0, y0,
+                            x1 < 0 ? 0 : x1 - x0 + 1, x1 < 0 ? 0 : y1 - y0 + 1, tile, pix);
+            prev = buf;
+        }
+        pc.retarget(px.data());
+        px = prev;   // the last frame, for the PNG
+        std::printf("damage over %d frames: box %.1f%% (max %.1f%%), %dx%d tiles %.1f%% (max %.1f%%), pixels %.1f%%, %d frames unchanged; paints kept %.0f%%\n",
+                    damage, sumBox / damage, maxBox, kTile, kTile, sumTile / damage, maxTile, sumPx / damage, still,
+                    kept + made ? 100.0 * kept / (kept + made) : 0.0);
     }
 
     if (bench > 0) {

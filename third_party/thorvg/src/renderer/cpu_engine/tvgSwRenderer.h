@@ -55,6 +55,9 @@ struct SwRenderer : RenderMethod
     bool intersectsShape(RenderData data, const RenderRegion& region) override;
     bool intersectsImage(RenderData data, const RenderRegion& region) override;
     Result target(pixel_t* data, uint32_t stride, uint32_t w, uint32_t h, ColorSpace cs);
+    // Kobento: a target the same size, stride and colour space as the current one (another
+    // buffer of a double-buffered pair): the paints' prepared data still holds.
+    bool sameTarget(uint32_t stride, uint32_t w, uint32_t h, ColorSpace cs) const;
 
     //composition
     SwSurface* request(int channelSize, bool square);

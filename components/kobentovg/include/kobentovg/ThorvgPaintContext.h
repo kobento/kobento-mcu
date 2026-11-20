@@ -70,6 +70,16 @@ public:
     // Number of tvg paints the last frame produced; a cheap complexity gauge.
     int paintCount() const { return mPaintCount; }
 
+    // Kept paints: a paint the frame draws as the frame before did (same shape, fill, stroke,
+    // transform, clip; for text and pictures, the same content) stays in the canvas from that
+    // frame, and ThorVG doesn't prepare it again (outlines, strokes: most of a frame's raster
+    // time on the ESP32-S3). On by default (host: RC_NO_RETAIN=1 turns it off); off, every
+    // frame is built anew, as before. kept/made: the last frame's paints reused and built.
+    void setRetain(bool on);
+    bool retaining() const { return mRetain; }
+    int keptCount() const { return mKept; }
+    int madeCount() const { return mMade; }
+
     // Profiling, between the document's paint and endFrame() (rcstage::profilePaints): the
     // paints at the canvas's top level, what one is (type, bounds, fill), and a raster of that
     // one alone, the others removed (the frame is spent then: begin another).
@@ -214,12 +224,14 @@ private:
     uint32_t paintColor() const;          // the paint's colour, through its colour filter
 
     // Scene-graph plumbing
-    void push(tvg::Paint* p);                         // add to current container, CTM applied
+    // add to current container, CTM applied. `content`: what the paint shows that its getters
+    // don't (a text's string and font, a picture's pixels); 0 for a text or picture: never kept.
+    void push(tvg::Paint* p, uint64_t content = 0);
     size_t mPushes = 0;                               // paints and containers pushed this frame
-    void pushContainer(tvg::Scene* scene);            // nest: later paints go inside
+    void pushContainer(tvg::Scene* scene, uint64_t content = 0);   // nest: later paints go inside
     tvg::Shape* styled(tvg::Shape* s, bool forceStroke = false);
     tvg::Fill* makeFill() const;
-    void drawShape(tvg::Shape* s, bool forceStroke = false);
+    void drawShape(tvg::Shape* s, bool forceStroke = false, uint64_t content = 0);
 
     // Geometry helpers
     bool buildPath(tvg::Shape* s, int pathId);
@@ -265,6 +277,32 @@ private:
     int mPaintCount = 0;
     bool mClearOpaque = false;
     tvg::Paint* mClear = nullptr;   // this frame's clear rect (the canvas owns it)
+
+    // The kept paints (setRetain): the canvas's tree as nodes, each with its key (keyOf). A
+    // frame matches what it draws against the last frame's nodes of the same container (a
+    // Level), in order with a little lookahead: equal, the old paint stays where it is and the
+    // new one goes; else the new one goes in before the next old one. Old ones passed over, or
+    // left at the end, are removed.
+    struct Node {
+        tvg::Paint* p;
+        uint64_t key;              // 0: never matches
+        std::vector<Node> kids;    // a scene's
+    };
+    struct Level {
+        tvg::Scene* scene;         // nullptr: the canvas
+        std::vector<Node> old;     // last frame's
+        size_t cursor = 0;         // the next old one to match
+        std::vector<Node> cur;     // this frame's
+    };
+    std::vector<Node> mRoot;       // the last frame's top level
+    std::vector<Level> mLevels;    // during a frame: the canvas, then each open container
+    bool mRetain = true;
+    int mKept = 0, mMade = 0;
+    uint64_t keyOf(tvg::Paint* p, uint64_t content) const;
+    tvg::Paint* place(tvg::Paint* p, uint64_t key, bool container);   // the paint now in the tree
+    void closeLevel();
+    void closeLevelsTo(size_t depth);   // open containers: `depth`
+    void dropRetained();                // forget the tree, empty the canvas
     bool documentCoversFrame() const;
 
     std::unordered_map<int, std::string> mTexts;

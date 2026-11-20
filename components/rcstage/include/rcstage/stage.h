@@ -145,8 +145,13 @@ bool capture(Frame& out, int w, int h, bool gray, int timeoutMs);
 // ── Player task only (from Hooks::tick) ──
 bool load(const uint8_t* data, size_t size, const char* name, bool fit = false);   // copies; false keeps the old
 void setRenderDiv(int div);    // 1 = native 720x1280, 2 = 360x640 upscaled by the PPA
-void bench();                  // raw ThorVG throughput, printed
+void bench();                  // raw ThorVG throughput, logged (requestBench from any task)
 void requestStats();           // log timing on the next frame
+void requestBench();           // bench() on the player task, soon
+// The current document drawn `frames` times (kept paints off, then on), the named variable `var`
+// moving from lo to hi: its paint and raster times, logged. Any task.
+void requestDocBench(const std::string& var, float lo, float hi, int frames);
+void setRetain(bool on);       // kept paints on or off (ThorvgPaintContext::setRetain), from any task
 // Log what each paint of the next frame costs to raster: the frame is built once per paint and
 // rastered with only that paint (~a second for 50 paints), then the costliest, with what they
 // are. A one-off, to find what makes a document slow.

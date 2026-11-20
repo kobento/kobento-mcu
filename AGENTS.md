@@ -206,6 +206,16 @@ text-on-a-path gradients, fonts beyond Roboto regular/bold/mono (no fallback: CJ
 nothing), WebP/GIF. When changing the backend, render every document before and after
 (`rc2png --time` for a fixed clock) and diff the pixels.
 
+**Kept paints.** The backend keeps last frame's ThorVG paints where a frame draws the same thing
+(`ThorvgPaintContext::setRetain`, on by default): ThorVG then doesn't prepare them again (paths,
+strokes: most of a frame's raster on the ESP32-S3; the mic's VU screen went from 25.6 to 18.1 ms a
+frame). A paint is matched by a key from ThorVG's getters (`keyOf`); a text or picture needs a
+content key from its caller (`push(p, content)`), or it is never kept. Anything that changes a
+paint without a getter seeing it must go into that key. Check a change over frames, not one:
+`rc2png --damage N` (with `--vary` for a screen's live values) and `RC_FRAME_CRC=1`, once as it is
+and once with `RC_NO_RETAIN=1`, every frame's CRC equal (`documents/fit/maze*.rc` differ from run to
+run anyway). On a board, `rcstage::requestDocBench` times a screen both ways.
+
 ## Board-specific traps (each board's README has more)
 
 - **Waveshare round (CH343P bridge) on macOS:** the built-in CDC driver corrupts packets of

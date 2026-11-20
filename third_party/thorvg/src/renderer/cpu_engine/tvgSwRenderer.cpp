@@ -278,6 +278,12 @@ bool SwRenderer::sync()
     return true;
 }
 
+bool SwRenderer::sameTarget(uint32_t stride, uint32_t w, uint32_t h, ColorSpace cs) const
+{
+    return surface && surface->stride == stride && surface->w == w && surface->h == h && surface->cs == cs;
+}
+
+
 Result SwRenderer::target(pixel_t* data, uint32_t stride, uint32_t w, uint32_t h, ColorSpace cs)
 {
     if (!data || stride == 0 || w == 0 || h == 0 || w > stride) return Result::InvalidArguments;

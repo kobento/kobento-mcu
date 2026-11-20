@@ -341,9 +341,16 @@ tvg::Loader* LoaderMgr::loader(const uint32_t* data, uint32_t w, uint32_t h, Col
 {
     // Note that users could use the same data pointer with the different content.
     // Thus caching is only valid for shareable.
-    if (!copy) {
-        // TODO: should we check premultiplied??
-        if (auto loader = _findFromCache((const char*)(data), w * h, "raw")) return loader;
+    // Kobento: share only a loader of the same pixels as they are: the same size and colour
+    // space, premultiplied (un-premultiplied pixels are premultiplied in place, once). A paint kept
+    // from the last frame may hold a loader at an address now holding other pixels.
+    const bool premultiplied = (cs == ColorSpace::ABGR8888 || cs == ColorSpace::ARGB8888);
+    if (!copy && premultiplied) {
+        if (auto loader = _findFromCache((const char*)(data), w * h, "raw")) {
+            auto raw = static_cast<RawLoader*>(loader);
+            if (raw->w == (float)w && raw->h == (float)h && raw->surface.cs == cs) return loader;
+            --loader->sharing;   // not this one: a loader of its own
+        }
     }
 
     // function is dedicated for raw images only

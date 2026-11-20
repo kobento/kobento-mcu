@@ -264,6 +264,9 @@ static tvg::Paint* nth(const std::list<tvg::Paint*>& list, int i);
 
 ThorvgPaintContext::ThorvgPaintContext(RemoteContext& context, uint32_t* pixels, int w, int h)
     : PaintContext(context), mPixels(pixels), mW(w), mH(h), mMatrix(identity()) {
+#if !defined(ESP_PLATFORM)
+    if (std::getenv("RC_NO_RETAIN")) mRetain = false;   // debug: every frame built anew, as before
+#endif
     mCanvas.reset(tvg::SwCanvas::gen());
     mCanvas->target(mPixels, w, w, h, tvg::ColorSpace::ARGB8888);
 }
@@ -277,7 +280,9 @@ ThorvgPaintContext::~ThorvgPaintContext() {
 static constexpr size_t kTextCacheBytes = 512 * 1024;
 
 void ThorvgPaintContext::beginFrame(const tvg::Matrix& base, uint32_t clearArgb) {
-    mCanvas->remove();
+    // Kept paints: last frame's tree stays in the canvas, to be matched (place). A frame begun
+    // and never ended (the paint profiler's) leaves no tree to trust.
+    if (!mRetain || !mLevels.empty()) dropRetained();
     // Last frame's pictures are gone with it: cached text may go now. Over budget, what wasn't
     // drawn for a second or so (texts that change, numbers); still over, the lot.
     mFrameNo++;
@@ -291,6 +296,7 @@ void ThorvgPaintContext::beginFrame(const tvg::Matrix& base, uint32_t clearArgb)
             }
         }
         if (mTextCacheBytes > kTextCacheBytes) {
+            dropRetained();   // kept pictures read these pixels
             mTextCache.clear();
             mTextCacheBytes = 0;
         }
@@ -298,6 +304,29 @@ void ThorvgPaintContext::beginFrame(const tvg::Matrix& base, uint32_t clearArgb)
     mContainers.clear();
     mSaves.clear();
     mPaintCount = 0;
+    mKept = mMade = 0;
+    if (mRetain) {
+        // What can't be kept goes now, before this frame loads its pictures: ThorVG shares a
+        // loaded picture by its pixels' address, and a 3D or mesh buffer may be at last frame's.
+        std::function<void(tvg::Scene*, std::vector<Node>&)> prune = [&](tvg::Scene* parent, std::vector<Node>& nodes) {
+            size_t k = 0;
+            for (size_t i = 0; i < nodes.size(); i++) {
+                Node& n = nodes[i];
+                if (!n.key) {
+                    if (parent) parent->remove(n.p);
+                    else mCanvas->remove(n.p);
+                    continue;
+                }
+                if (!n.kids.empty()) prune(static_cast<tvg::Scene*>(n.p), n.kids);
+                if (k != i) nodes[k] = std::move(n);   // never onto itself: that empties its kids
+                k++;
+            }
+            nodes.resize(k);
+        };
+        prune(nullptr, mRoot);
+        mLevels.push_back({nullptr, std::move(mRoot), 0, {}});
+    }
+    mRoot.clear();
     m3D.~Tvg3D();               // drop last frame's 3D blits but keep nothing else
     new (&m3D) Tvg3D(*this);
     mMeshBuffers.clear();       // last frame's 2D mesh pixels; Pictures that read them are gone
@@ -310,8 +339,11 @@ void ThorvgPaintContext::beginFrame(const tvg::Matrix& base, uint32_t clearArgb)
     bg->appendRect(0, 0, (float) mW, (float) mH);
     bg->fill((clearArgb >> 16) & 0xFF, (clearArgb >> 8) & 0xFF, clearArgb & 0xFF,
              clearArgb >> 24);
-    mCanvas->add(bg);
-    mClear = bg;
+    if (mRetain) mClear = place(bg, keyOf(bg, 0), false);
+    else {
+        mCanvas->add(bg);
+        mClear = bg;
+    }
     mMatrix = base;
 }
 
@@ -322,7 +354,12 @@ void ThorvgPaintContext::retarget(uint32_t* pixels) {
 }
 
 void ThorvgPaintContext::addOverlay(tvg::Paint* p) {
-    mCanvas->add(p);
+    if (mRetain && !mLevels.empty()) {
+        closeLevelsTo(0);   // on top of everything, whatever the document left open
+        place(p, keyOf(p, 0), false);
+    } else {
+        mCanvas->add(p);
+    }
 }
 
 void ThorvgPaintContext::endFrame() {
@@ -335,8 +372,18 @@ void ThorvgPaintContext::endFrame() {
     static const bool keepClear = std::getenv("RC_KEEP_CLEAR") != nullptr;   // debug: as before, to diff
     keep = keepClear;
 #endif
-    if (mClear && mClearOpaque && !keep && documentCoversFrame()) mCanvas->remove(mClear);
+    if (mRetain && !mLevels.empty()) {
+        closeLevelsTo(0);
+        closeLevel();   // the canvas's: mRoot is this frame's tree
+    }
+    if (mClear && mClearOpaque && !keep && documentCoversFrame()) {
+        mCanvas->remove(mClear);
+        if (!mRoot.empty() && mRoot.front().p == mClear) mRoot.erase(mRoot.begin());
+    }
     mClear = nullptr;
+    // Every frame draws in full (into the other buffer, double buffering): with nothing changed
+    // draw() would draw nothing; update() prepares only what changed.
+    mCanvas->update();
     mCanvas->draw(!mClearOpaque);
     mCanvas->sync();
 }
@@ -416,6 +463,7 @@ void ThorvgPaintContext::rasterOnly(int i, int j) {
     }
     mCanvas->draw(false);
     mCanvas->sync();
+    dropRetained();   // the tree's paints were removed above
 }
 
 // A shape that is an axis-aligned rectangle covering w x h in canvas space (its path: four
@@ -467,7 +515,7 @@ void ThorvgPaintContext::reset() {
 
 // ── Scene-graph plumbing ──────────────────────────────────────────────────────────────────
 
-void ThorvgPaintContext::push(tvg::Paint* p) {
+void ThorvgPaintContext::push(tvg::Paint* p, uint64_t content) {
     mPushes++;
     if (!finite(mMatrix)) { tvg::Paint::rel(p); return; }
 #if !defined(ESP_PLATFORM)
@@ -479,20 +527,198 @@ void ThorvgPaintContext::push(tvg::Paint* p) {
           mContainers.size(), mSaves.size(), mMatrix.e11, mMatrix.e12, mMatrix.e13, mMatrix.e21,
           mMatrix.e22, mMatrix.e23);
     if (mPaint.blend != tvg::BlendMethod::Normal) p->blend(mPaint.blend);
+    mPaintCount++;
+    if (mRetain && !mOffscreen && !mLevels.empty()) {
+        uint64_t key = keyOf(p, content);
+        if (key) key = (key ^ (uint64_t) mPaint.blend) * 1099511628211ull;   // no getter for it
+        place(p, key, false);
+        return;
+    }
     if (!mContainers.empty()) mContainers.back()->add(p);
     else if (mOffscreen) mOffscreen->canvas->add(p);
     else mCanvas->add(p);
-    mPaintCount++;
 }
 
-void ThorvgPaintContext::pushContainer(tvg::Scene* scene) {
+void ThorvgPaintContext::pushContainer(tvg::Scene* scene, uint64_t content) {
     mPushes++;
     // The scene itself stays untransformed: every child carries the full CTM, and so does
     // any clipper attached to the scene.
+    if (mRetain && !mOffscreen && !mLevels.empty()) {
+        mContainers.push_back(static_cast<tvg::Scene*>(place(scene, keyOf(scene, content), true)));
+        return;
+    }
     if (!mContainers.empty()) mContainers.back()->add(scene);
     else if (mOffscreen) mOffscreen->canvas->add(scene);
     else mCanvas->add(scene);
     mContainers.push_back(scene);
+}
+
+// ── Kept paints ───────────────────────────────────────────────────────────────────────────
+
+namespace {
+constexpr uint64_t kFnvPrime = 1099511628211ull;
+inline void mixU(uint64_t& h, uint64_t v) { h = (h ^ v) * kFnvPrime; }
+inline void mixF(uint64_t& h, float f) {
+    uint32_t b;
+    std::memcpy(&b, &f, 4);
+    mixU(h, b);
+}
+void mixM(uint64_t& h, const tvg::Matrix& m) {
+    for (float f : {m.e11, m.e12, m.e13, m.e21, m.e22, m.e23, m.e31, m.e32, m.e33}) mixF(h, f);
+}
+void mixFill(uint64_t& h, const tvg::Fill* f) {
+    if (!f) { mixU(h, 0x51); return; }
+    mixU(h, (uint64_t) f->type());
+    const tvg::Fill::ColorStop* cs = nullptr;
+    const uint32_t n = f->colorStops(&cs);
+    for (uint32_t i = 0; i < n; i++) {
+        mixF(h, cs[i].offset);
+        mixU(h, cs[i].r | (cs[i].g << 8) | (cs[i].b << 16) | ((uint32_t) cs[i].a << 24));
+    }
+    mixU(h, (uint64_t) f->spread());
+    mixM(h, f->transform());
+    float a = 0, b = 0, c = 0, d = 0, e = 0, g = 0;
+    switch (f->type()) {
+        case tvg::Type::LinearGradient: static_cast<const tvg::LinearGradient*>(f)->linear(&a, &b, &c, &d); break;
+        case tvg::Type::RadialGradient: static_cast<const tvg::RadialGradient*>(f)->radial(&a, &b, &c, &d, &e, &g); break;
+        case tvg::Type::ConicGradient: static_cast<const tvg::ConicGradient*>(f)->conic(&a, &b, &c); break;
+        default: break;
+    }
+    for (float v : {a, b, c, d, e, g}) mixF(h, v);
+}
+void mixShape(uint64_t& h, const tvg::Shape* s) {
+    const tvg::PathCommand* cmds = nullptr;
+    const tvg::Point* pts = nullptr;
+    uint32_t nc = 0, np = 0;
+    s->path(&cmds, &nc, &pts, &np);
+    mixU(h, nc);
+    for (uint32_t i = 0; i < nc; i++) mixU(h, (uint64_t) cmds[i]);
+    mixU(h, np);
+    for (uint32_t i = 0; i < np; i++) { mixF(h, pts[i].x); mixF(h, pts[i].y); }
+    mixU(h, (uint64_t) s->fillRule());
+    uint8_t r = 0, g = 0, b = 0, a = 0;
+    s->fill(&r, &g, &b, &a);
+    mixU(h, r | (g << 8) | (b << 16) | ((uint32_t) a << 24));
+    mixFill(h, s->fill());
+    const float w = s->strokeWidth();
+    mixF(h, w);
+    if (w > 0) {
+        s->strokeFill(&r, &g, &b, &a);
+        mixU(h, r | (g << 8) | (b << 16) | ((uint32_t) a << 24));
+        mixFill(h, s->strokeFill());
+        const float* dash = nullptr;
+        float offset = 0;
+        const uint32_t nd = s->strokeDash(&dash, &offset);
+        for (uint32_t i = 0; i < nd; i++) mixF(h, dash[i]);
+        mixF(h, offset);
+        mixU(h, (uint64_t) s->strokeCap() | ((uint64_t) s->strokeJoin() << 8));
+        mixF(h, s->strokeMiterlimit());
+    }
+}
+}  // namespace
+
+// What a paint draws, as a key: equal keys draw the same pixels. The getters see a shape
+// whole (path, fill, stroke) and every paint's transform, opacity, clip and mask; a text's
+// string and a picture's pixels they don't, so those come as `content` (0: no key, never kept).
+// Things set without a getter (a trimmed path, a scene's blur, a blend) are in `content` too.
+uint64_t ThorvgPaintContext::keyOf(tvg::Paint* p, uint64_t content) const {
+    uint64_t h = 1469598103934665603ull;
+    const tvg::Type type = p->type();
+#if !defined(ESP_PLATFORM)
+    // debug: RC_RETAIN_SKIP=N never keeps paints of tvg::Type N (1 shape, 2 scene, 3 picture, 4 text)
+    static const char* skip = std::getenv("RC_RETAIN_SKIP");
+    if (skip && std::strchr(skip, '0' + (int) type)) return 0;
+#endif
+    mixU(h, (uint64_t) type);
+    mixU(h, p->opacity());
+    mixM(h, p->transform());
+    if (tvg::Shape* c = p->clip()) {
+        mixU(h, 0xC11);
+        mixM(h, c->transform());
+        mixShape(h, c);
+    }
+    const tvg::Paint* target = nullptr;
+    const tvg::MaskMethod mm = p->mask(&target);
+    if (mm != tvg::MaskMethod::None) {
+        if (!content || !target) return 0;   // a mask's text or picture: only the caller knows it
+        mixU(h, (uint64_t) mm);
+        mixU(h, (uint64_t) target->type());
+        mixM(h, const_cast<tvg::Paint*>(target)->transform());
+        if (target->type() == tvg::Type::Shape) mixShape(h, static_cast<const tvg::Shape*>(target));
+    }
+    switch (type) {
+        case tvg::Type::Shape: mixShape(h, static_cast<tvg::Shape*>(p)); break;
+        case tvg::Type::Scene: break;   // its children are matched inside it
+        case tvg::Type::Picture:
+        case tvg::Type::Text:
+            if (!content) return 0;
+            break;
+        default: return 0;
+    }
+    mixU(h, content);
+    return h ? h : 1;
+}
+
+tvg::Paint* ThorvgPaintContext::place(tvg::Paint* p, uint64_t key, bool container) {
+    // How far ahead to look for an equal paint: one inserted or removed shifts the rest.
+    constexpr size_t kLookahead = 32;
+    Level& L = mLevels.back();
+    auto removeOld = [&](tvg::Paint* q) {
+        if (L.scene) L.scene->remove(q);
+        else mCanvas->remove(q);
+    };
+    if (key) {
+        const size_t end = std::min(L.old.size(), L.cursor + kLookahead);
+        for (size_t j = L.cursor; j < end; j++) {
+            if (L.old[j].key != key) continue;
+            for (size_t k = L.cursor; k < j; k++) removeOld(L.old[k].p);   // gone this frame
+            L.cursor = j + 1;
+            tvg::Paint::rel(p);
+            L.cur.push_back(std::move(L.old[j]));
+            mKept++;
+            tvg::Paint* kept = L.cur.back().p;
+            if (container) {
+                std::vector<Node> kids = std::move(L.cur.back().kids);
+                L.cur.back().kids.clear();
+                mLevels.push_back({static_cast<tvg::Scene*>(kept), std::move(kids), 0, {}});   // L invalid now
+            }
+            return kept;
+        }
+    }
+    tvg::Paint* at = L.cursor < L.old.size() ? L.old[L.cursor].p : nullptr;   // before the next old one
+    if (L.scene) L.scene->add(p, at);
+    else mCanvas->add(p, at);
+    L.cur.push_back({p, key, {}});
+    mMade++;
+    if (container) mLevels.push_back({static_cast<tvg::Scene*>(p), {}, 0, {}});
+    return p;
+}
+
+void ThorvgPaintContext::closeLevel() {
+    Level L = std::move(mLevels.back());
+    mLevels.pop_back();
+    for (size_t k = L.cursor; k < L.old.size(); k++) {   // not drawn this frame
+        if (L.scene) L.scene->remove(L.old[k].p);
+        else mCanvas->remove(L.old[k].p);
+    }
+    if (mLevels.empty()) mRoot = std::move(L.cur);
+    else mLevels.back().cur.back().kids = std::move(L.cur);
+}
+
+void ThorvgPaintContext::closeLevelsTo(size_t depth) {
+    while (mLevels.size() > depth + 1) closeLevel();
+}
+
+void ThorvgPaintContext::dropRetained() {
+    mLevels.clear();
+    mRoot.clear();
+    mCanvas->remove();
+}
+
+void ThorvgPaintContext::setRetain(bool on) {
+    if (on == mRetain) return;
+    dropRetained();
+    mRetain = on;
 }
 
 tvg::Fill* ThorvgPaintContext::makeFill() const {
@@ -571,8 +797,16 @@ tvg::Shape* ThorvgPaintContext::styled(tvg::Shape* s, bool forceStroke) {
     return s;
 }
 
-void ThorvgPaintContext::drawShape(tvg::Shape* s, bool forceStroke) {
-    push(styled(s, forceStroke));
+void ThorvgPaintContext::drawShape(tvg::Shape* s, bool forceStroke, uint64_t content) {
+    push(styled(s, forceStroke), content);
+}
+
+// A trimmed path's content key (no getter for the trim).
+static uint64_t trimKey(float start, float end) {
+    uint32_t a, b;
+    std::memcpy(&a, &start, 4);
+    std::memcpy(&b, &end, 4);
+    return ((uint64_t) a << 32 | b) | 1;
 }
 
 // ── Geometry ──────────────────────────────────────────────────────────────────────────────
@@ -726,8 +960,9 @@ bool ThorvgPaintContext::buildPath(tvg::Shape* s, int pathId) {
 void ThorvgPaintContext::drawPath(int pathId, float start, float end) {
     auto s = tvg::Shape::gen();
     if (!buildPath(s, pathId)) { tvg::Paint::rel(s); return; }
-    if (start > 0.0f || end < 1.0f) s->trimpath(start, end, false);
-    drawShape(s);
+    const bool trim = start > 0.0f || end < 1.0f;
+    if (trim) s->trimpath(start, end, false);
+    drawShape(s, false, trim ? trimKey(start, end) : 0);
 }
 
 // Path tweening interpolates point-by-point between two paths of identical structure,
@@ -758,8 +993,9 @@ void ThorvgPaintContext::drawTweenPath(int path1Id, int path2Id, float tween, fl
     }
     auto s = tvg::Shape::gen();
     buildPathFromFloats(s, *use);
-    if (start > 0.0f || end < 1.0f) s->trimpath(start, end, false);
-    drawShape(s);
+    const bool trim = start > 0.0f || end < 1.0f;
+    if (trim) s->trimpath(start, end, false);
+    drawShape(s, false, trim ? trimKey(start, end) : 0);
 }
 
 void ThorvgPaintContext::tweenPath(int outId, int pathId1, int pathId2, float tween) {
@@ -798,7 +1034,15 @@ void ThorvgPaintContext::drawImage(Image& source, float dl, float dt, float dw, 
     mMatrix = mul(mMatrix, tvg::Matrix{dw / img.w, 0, dl, 0, dh / img.h, dt, 0, 0, 1});
     uint8_t a = mPaint.color >> 24;
     if (a != 255) pic->opacity(a);
-    push(pic);
+    // Its pixels: where they are and their version (the source's: a filtered copy follows it).
+    uint64_t content = 1469598103934665603ull;
+    mixU(content, (uint64_t) (uintptr_t) img.px.data());
+    mixU(content, (uint64_t) (uintptr_t) source.px.data());
+    mixU(content, source.version);
+    mixU(content, (uint64_t) img.w << 32 | (uint32_t) img.h);
+    mixU(content, mPaint.nearestFilter);
+    if (mPaint.hasColorFilter) mixU(content, (uint64_t) mPaint.colorFilter << 8 | (uint32_t) mPaint.colorFilterMode);
+    push(pic, content);
     mMatrix = saved;
 }
 
@@ -1031,6 +1275,12 @@ void ThorvgPaintContext::drawText(const std::string& utf8, float x, float baseli
     if (mPaint.style != PaintBundle::STYLE_STROKE && !gradient &&
         drawCachedText(utf8, font, x, baselineY - ascent, size, ascent, descent, c))
         return;
+    uint64_t content = 1469598103934665603ull;   // the text, as the getters can't see it
+    mixU(content, std::hash<std::string>{}(utf8));
+    mixU(content, (uint64_t) (uintptr_t) font);
+    mixF(content, size);
+    mixU(content, (uint64_t) mPaint.italic | (uint64_t) mPaint.style << 8 | (uint64_t) c << 16);
+    mixF(content, mPaint.strokeWidth);
     auto t = tvg::Text::gen();
     t->font(font);
     t->size(size * kPxToTvgSize);
@@ -1054,7 +1304,7 @@ void ThorvgPaintContext::drawText(const std::string& utf8, float x, float baseli
         box->fill(makeFill());
         if ((mPaint.color >> 24) != 255) box->opacity(mPaint.color >> 24);
         box->mask(t, tvg::MaskMethod::Alpha);
-        push(box);
+        push(box, content);
         return;
     } else
         t->fill((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
@@ -1062,7 +1312,7 @@ void ThorvgPaintContext::drawText(const std::string& utf8, float x, float baseli
     // ThorVG anchors a text box at its top-left (align 0,0); the box top is the ascent line.
     tvg::Matrix saved = mMatrix;
     mMatrix = mul(mMatrix, translateM(x, baselineY - ascent));
-    push(t);
+    push(t, content);
     mMatrix = saved;
 }
 
@@ -1133,7 +1383,7 @@ bool ThorvgPaintContext::drawCachedText(const std::string& utf8, const char* fon
     const float dx = m.e11 * x + m.e13 - img.pad, dy = m.e22 * boxTop + m.e23 - img.pad;
     tvg::Matrix saved = mMatrix;
     mMatrix = translateM(std::round(dx), std::round(dy));
-    push(pic);
+    push(pic, (key ^ (uint64_t) (uintptr_t) img.px.data()) | 1);   // the cache's pixels for that text
     mMatrix = saved;
     return true;
 }
@@ -1614,7 +1864,9 @@ void ThorvgPaintContext::matrixSave() { mSaves.push_back({mMatrix, mContainers.s
 void ThorvgPaintContext::matrixRestore() {
     if (mSaves.empty()) return;
     mMatrix = mSaves.back().matrix;
-    mContainers.resize(std::min(mContainers.size(), mSaves.back().containerDepth));
+    const size_t depth = std::min(mContainers.size(), mSaves.back().containerDepth);
+    if (mRetain && !mOffscreen && !mLevels.empty()) closeLevelsTo(depth);
+    mContainers.resize(depth);
     mSaves.pop_back();
 }
 
@@ -1651,7 +1903,9 @@ void ThorvgPaintContext::saveLayerWithBlur(float sx, float sy, float, float, flo
     float scale = std::sqrt(mMatrix.e11 * mMatrix.e11 + mMatrix.e21 * mMatrix.e21);
     double sigma = std::max(sx, sy) * scale;
     if (sigma > 0) scene->add(tvg::SceneEffect::GaussianBlur, sigma, 0, 0, 75);
-    pushContainer(scene);
+    uint64_t blur;
+    std::memcpy(&blur, &sigma, 8);
+    pushContainer(scene, blur | 1);   // no getter for the effect
 }
 
 void ThorvgPaintContext::restoreLayer() { matrixRestore(); }

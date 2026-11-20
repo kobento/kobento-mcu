@@ -19,7 +19,11 @@ A fork of **ThorVG** (MIT), vendored at v1.0.7, with local patches:
 
 - a text-metrics bug fix (space poisoning the font), and
 - the RcVG work (sweep/conic gradient, text-on-path, 2D meshes, backend fixes — see
-  `docs/RCVG_STUDY.md`).
+  `docs/RCVG_STUDY.md`), and
+- for paints kept across frames (`ThorvgPaintContext::setRetain`): retargeting a canvas to another
+  buffer of the same size keeps its paints' prepared data (`SwCanvas::target`,
+  `SwRenderer::sameTarget`), and a raw picture shares a cached loader only for the same size and
+  colour space, premultiplied (`LoaderMgr::loader`). Both are marked `Kobento:`.
 
 The integration layer we author on top of it — `components/kobentovg` (`ThorvgPaintContext`,
 namespace `kobentovg`) — is **KobentoVG**, Kobento's vector-graphics layer. It has nothing to

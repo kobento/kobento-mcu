@@ -83,6 +83,8 @@ static void collectNamed(const std::vector<std::unique_ptr<rccore::Operation>>& 
     }
 }
 
+static bool sRetainOn = true;   // kept paints (setRetain), for every document loaded
+
 struct Player {
     // The document must outlive its CoreDocument; shared so other tasks can keep a copy
     // (rc.pin saves it) without copying it.
@@ -130,6 +132,7 @@ struct Player {
         rw = board::kWidth / sRenderDiv;
         rh = board::kHeight / sRenderDiv;
         pc = std::make_unique<kobentovg::ThorvgPaintContext>(*ctx, pixels, rw, rh);
+        pc->setRetain(sRetainOn);
         ctx->setPaintContext(pc.get());
         ctx->setDocument(doc.get());
         ctx->mWidth = (float) dpW;
@@ -264,6 +267,13 @@ static int sBack = 0;
 static bool sDirty = true;
 static bool sStatsNow = false;
 static std::atomic<bool> sProfileNow{false};
+static std::atomic<bool> sBenchNow{false};   // requestBench: bench() on the player task
+// requestDocBench: the document drawn N times, one named variable moving (player task)
+static std::mutex sDocBenchLock;
+static std::string sDocBenchVar;
+static float sDocBenchLo = 0, sDocBenchHi = 1;
+static std::atomic<int> sDocBenchFrames{0};
+static std::atomic<int> sRetainReq{-1};      // setRetain: 0 or 1, applied on the player task
 // When the document wants its next frame (esp_timer us; INT64_MAX: never), and frames drawn.
 static std::atomic<int64_t> sNextAtUs{0};
 static std::atomic<bool> sContinuous{false};   // the last frame asked for the next at once
@@ -519,6 +529,64 @@ void setRenderDiv(int div) {
 
 void requestStats() { sStatsNow = true; }
 void profilePaints() { sProfileNow = true; }
+void requestBench() { sBenchNow = true; }
+void requestDocBench(const std::string& var, float lo, float hi, int frames) {
+    std::lock_guard<std::mutex> g(sDocBenchLock);
+    sDocBenchVar = var;
+    sDocBenchLo = lo;
+    sDocBenchHi = hi;
+    sDocBenchFrames = std::max(1, std::min(frames, 500));
+}
+
+// The current document drawn `frames` times with kept paints off, then on, `var` moving between
+// lo and hi: the document's time (its paint: building the paints, and with kept paints matching
+// them) and the raster's, logged. Not presented: the screen shows the frame before until after.
+static void runDocBench(const tvg::Matrix& base) {
+    std::string var;
+    float lo, hi;
+    int frames;
+    {
+        std::lock_guard<std::mutex> g(sDocBenchLock);
+        var = sDocBenchVar, lo = sDocBenchLo, hi = sDocBenchHi, frames = sDocBenchFrames;
+        sDocBenchFrames = 0;
+    }
+    board::presentWait();
+    auto& pc = *sPlayer.pc;
+    const bool was = pc.retaining();
+    for (int on = 0; on < 2; on++) {
+        pc.setRetain(on == 1);
+        int64_t tDoc = 0, tRaster = 0;
+        long kept = 0, made = 0;
+        for (int i = -2; i < frames; i++) {   // two frames first: the tree, the text cache
+            const float u = 0.5f + 0.5f * std::sin(i * 0.37f);
+            if (!var.empty()) sPlayer.setNamed(var, std::to_string(lo + (hi - lo) * u));
+            pc.retarget(sBufs[sBack]);
+            const int64_t t0 = esp_timer_get_time();
+            pc.beginFrame(base, sPlayer.fit ? 0xFF000000 : 0xFFFFFFFF);
+            try {
+                sPlayer.doc->paint(*sPlayer.ctx, kThemeLight);
+            } catch (const std::exception&) {
+            }
+            const int64_t t1 = esp_timer_get_time();
+            pc.endFrame();
+            const int64_t t2 = esp_timer_get_time();
+            sBack ^= 1;
+            if (i < 0) continue;
+            tDoc += t1 - t0;
+            tRaster += t2 - t1;
+            kept += pc.keptCount();
+            made += pc.madeCount();
+            if ((i & 7) == 7) vTaskDelay(1);   // let IDLE run (watchdog)
+        }
+        ESP_LOGI(TAG, "docbench %s, %d frames, %s %g..%g: doc %.2f + raster %.2f = %.2f ms/frame, %ld kept %ld made",
+                 on ? "kept on " : "kept off", frames, var.empty() ? "(nothing)" : var.c_str(), lo, hi,
+                 tDoc / 1000.0f / frames, tRaster / 1000.0f / frames, (tDoc + tRaster) / 1000.0f / frames,
+                 kept / frames, made / frames);
+    }
+    pc.setRetain(was);
+    sDirty = true;
+}
+void setRetain(bool on) { sRetainReq = on ? 1 : 0; }
 
 // profilePaints(): player task, before a normal frame. `base` as the frame's.
 static void runPaintProfile(const tvg::Matrix& base) {
@@ -603,36 +671,94 @@ void click(float x, float y) {
     sDirty = true;
 }
 
+// Raw ThorVG throughput, logged: fills over the whole frame (in PSRAM), then the same drawing
+// into a strip of rows held in PSRAM and in internal RAM, to see what PSRAM costs the raster.
 void bench() {
     board::presentWait();
-    uint32_t* px = sBufs[sBack];
-    const int w = sPlayer.rw, h = sPlayer.rh;
-    std::unique_ptr<tvg::SwCanvas> c(tvg::SwCanvas::gen());
-    c->target(px, w, w, h, tvg::ColorSpace::ARGB8888);
-    auto run = [&](const char* name, bool clear, int alpha, int nRects) {
-        const int N = 5;
-        int64_t t0 = esp_timer_get_time();
-        for (int i = 0; i < N; i++) {
+    using Clock = int64_t;
+    auto now = [] { return (Clock) esp_timer_get_time(); };
+    // Fills and strokes on canvas `c` (w x h): what a document draws, without the document.
+    // kind: 0 a full rect, 1 circles filled and stroked, 2 filled only, 3 stroked only, 4 small
+    // filled rects. retain: build once and draw the same paints again (ThorVG prepares a paint
+    // only when it changed), as a renderer keeping last frame's paints would.
+    auto run = [&](tvg::SwCanvas* c, int w, int h, const char* where, const char* name, bool clear, int alpha,
+                   int n, int kind, bool retain = false, bool replace = false) {
+        auto build = [&] {
             c->remove();
-            for (int k = 0; k < nRects; k++) {
+            for (int k = 0; k < n; k++) {
                 auto r = tvg::Shape::gen();
-                r->appendRect(0, 0, (float) w, (float) h);
-                r->fill(40, 80, 160, alpha);
+                const float cx = (k * 37) % w, cy = (k * 13) % h;
+                if (kind == 0) r->appendRect(0, 0, (float) w, (float) h);
+                else if (kind == 4) r->appendRect(cx - 10, cy - 10, 20, 20);
+                else r->appendCircle(cx, cy, 10, 10);
+                if (kind == 0) r->fill(40, 80, 160, alpha);
+                else if (kind != 3) r->fill(200, 60, 40, 200);
+                if (kind == 1 || kind == 3) {
+                    r->strokeWidth(2);
+                    r->strokeFill(255, 255, 255, 255);
+                }
                 c->add(r);
             }
+        };
+        const int N = 5;
+        if (retain) {
+            build();
             c->draw(clear);
             c->sync();
         }
-        printf("bench %-28s %6.1f ms\n", name, (esp_timer_get_time() - t0) / 1000.0f / N);
+        Clock t0 = now();
+        for (int i = 0; i < N; i++) {
+            if (!retain) build();
+            else if (replace) {
+                // One paint changes: the last removed, a new one in its place (it moves a little).
+                auto& kids = c->paints();
+                tvg::Paint* last = kids.back();
+                c->remove(last);
+                auto r = tvg::Shape::gen();
+                r->appendCircle(20 + i * 3, 12, 10, 10);
+                r->fill(200, 60, 40, 200);
+                r->strokeWidth(2);
+                r->strokeFill(255, 255, 255, 255);
+                c->add(r);
+            } else c->update();   // nothing changed: without it draw() does nothing; with it, all raster, none prepared
+            c->draw(clear);
+            c->sync();
+        }
+        ESP_LOGI(TAG, "bench %-9s %-26s %6.2f ms", where, name, (now() - t0) / 1000.0f / N);
     };
-    int64_t t0 = esp_timer_get_time();
-    for (int i = 0; i < 5; i++) memset(px, 0, (size_t) w * h * 4);
-    printf("bench %-28s %6.1f ms\n", "memset", (esp_timer_get_time() - t0) / 1000.0f / 5);
-    run("clear only", true, 255, 0);
-    run("opaque rect, no clear", false, 255, 1);
-    run("clear + opaque rect", true, 255, 1);
-    run("blended rect (a=128)", false, 128, 1);
-    run("4 blended rects", false, 128, 4);
+    auto suite = [&](uint32_t* px, int w, int h, const char* where) {
+        std::unique_ptr<tvg::SwCanvas> c(tvg::SwCanvas::gen());
+        c->target(px, w, w, h, tvg::ColorSpace::ARGB8888);
+        Clock t0 = now();
+        for (int i = 0; i < 5; i++) memset(px, 0, (size_t) w * h * 4);
+        ESP_LOGI(TAG, "bench %-9s %-26s %6.2f ms", where, "memset", (now() - t0) / 1000.0f / 5);
+        run(c.get(), w, h, where, "clear only", true, 255, 0, 0);
+        run(c.get(), w, h, where, "opaque rect, no clear", false, 255, 1, 0);
+        run(c.get(), w, h, where, "blended rect (a=128)", false, 128, 1, 0);
+        run(c.get(), w, h, where, "4 blended rects", false, 128, 4, 0);
+        run(c.get(), w, h, where, "40 circles, fill+stroke", false, 255, 40, 1);
+        run(c.get(), w, h, where, "40 circles, fill", false, 255, 40, 2);
+        run(c.get(), w, h, where, "40 circles, stroke", false, 255, 40, 3);
+        run(c.get(), w, h, where, "40 small rects", false, 255, 40, 4);
+        run(c.get(), w, h, where, "40 circles f+s, kept", false, 255, 40, 1, true);
+        run(c.get(), w, h, where, "40 circles fill, kept", false, 255, 40, 2, true);
+        run(c.get(), w, h, where, "40 circles f+s, 1 new", false, 255, 40, 1, true, true);
+    };
+    const int w = sPlayer.rw, h = sPlayer.rh;
+    ESP_LOGI(TAG, "bench: whole frame %dx%d", w, h);
+    suite(sBufs[sBack], w, h, "frame");
+    // A strip as a strip renderer would use, the same size in both memories.
+    const int lines = 24;
+    const size_t bytes = (size_t) w * lines * 4;
+    auto* inPs = (uint32_t*) heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM);
+    auto* inInt = (uint32_t*) heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    ESP_LOGI(TAG, "bench: strip %dx%d (%u KB), internal free %u", w, lines, (unsigned) (bytes / 1024),
+             (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    if (inPs) suite(inPs, w, lines, "psram");
+    if (inInt) suite(inInt, w, lines, "internal");
+    else ESP_LOGW(TAG, "bench: no %u bytes of internal RAM for the strip", (unsigned) bytes);
+    heap_caps_free(inPs);
+    heap_caps_free(inInt);
     sDirty = true;
 }
 
@@ -909,6 +1035,16 @@ static void task(void*) {
         feedMotion(now);
         serviceCapture(sBufs[sBack ^ 1]);   // the frame last presented (one buffer on e-ink)
         serviceValues();
+        if (sBenchNow.exchange(false)) bench();
+        if (sDocBenchFrames > 0) {
+            const float k = kDensity / sRenderDiv, ks = k * sPlayer.scale;
+            runDocBench(tvg::Matrix{ks, 0, k * sPlayer.ox, 0, ks, k * sPlayer.oy, 0, 0, 1});
+        }
+        if (const int r = sRetainReq.exchange(-1); r >= 0 && sPlayer.pc) {
+            sRetainOn = r == 1;
+            sPlayer.pc->setRetain(sRetainOn);
+            sDirty = true;
+        }
 
         // ── render ──
         if (!sDirty && now < nextAt) {
@@ -946,11 +1082,12 @@ static void task(void*) {
         sFrames++;
 
         if (sStatsNow || now - statsAt > 5000000) {
-            ESP_LOGI(TAG, "%dx%d %.1f fps | doc %.1f + raster %.1f ms | present wait %.1f ms | app %.1f ms | %d tvg paints | heap int %u psram %u",
+            ESP_LOGI(TAG, "%dx%d %.1f fps | doc %.1f + raster %.1f ms | present wait %.1f ms | app %.1f ms | %d tvg paints, %d kept %d made | heap int %u psram %u",
                      sPlayer.rw, sPlayer.rh, frames * 1e6f / (now - statsAt + 1),
                      sPlayer.tDoc / 1000.0f / frames, sPlayer.tRaster / 1000.0f / frames, tPresent / 1000.0f / frames,
                      tTick / 1000.0f / frames,
-                     sPlayer.pc->paintCount(), (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                     sPlayer.pc->paintCount(), sPlayer.pc->keptCount(), sPlayer.pc->madeCount(),
+                     (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                      (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
             frames = 0; tPresent = 0; tTick = 0; statsAt = now; sStatsNow = false;
             sPlayer.tDoc = sPlayer.tRaster = 0;
